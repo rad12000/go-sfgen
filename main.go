@@ -128,7 +128,7 @@ func parsePackage(source, structName string) ([]byte, error) {
 		}
 	)
 
-	for i := range s.NumFields() {
+	for i := 0; i < s.NumFields(); i++ {
 		field := s.Field(i)
 		if !includeUnexported && !field.Exported() {
 			maybeCloseConstants(i)

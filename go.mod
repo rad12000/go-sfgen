@@ -1,6 +1,6 @@
 module github.com/rad12000/go-sfgen
 
-go 1.22.2
+go 1.19
 
 require (
 	github.com/fatih/structtag v1.2.0
