@@ -7,6 +7,7 @@ import (
 	"github.com/fatih/structtag"
 	"go/types"
 	"golang.org/x/tools/go/packages"
+	"io"
 	"log"
 	"log/slog"
 	"os"
@@ -20,6 +21,7 @@ var (
 	structName        string
 	source            string
 	out               string
+	outSet            bool
 	outPkg            string
 	targetTag         string
 	export            bool
@@ -31,6 +33,29 @@ var (
 
 func main() {
 	parseFlags()
+
+	source, err := filepath.Abs(filepath.Dir(source))
+	if err != nil {
+		log.Fatalf("failed: %v", err)
+	}
+
+	contents, err := parsePackage(source, structName)
+	if err != nil {
+		log.Fatalf("failed to parse struct: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if outPkg != "" {
+		buf.WriteString(fmt.Sprintf("package %s\n", outPkg))
+	}
+	buf.Write(contents)
+
+	if !outSet {
+		if _, err := io.Copy(os.Stdout, &buf); err != nil {
+			log.Fatalf("failed to write to stdout: %v", err)
+		}
+	}
+
 	out, err := filepath.Abs(out)
 	if err != nil {
 		log.Fatalf("cannot parse out filepath %v", err)
@@ -45,19 +70,6 @@ func main() {
 		log.Fatalf("%v", err)
 	}
 
-	source, err := filepath.Abs(filepath.Dir(source))
-	if err != nil {
-		log.Fatalf("failed: %v", err)
-	}
-
-	contents, err := parsePackage(source, structName)
-	if err != nil {
-		log.Fatalf("failed to parse struct: %v", err)
-	}
-
-	var buf bytes.Buffer
-	buf.WriteString(fmt.Sprintf("package %s\n", outPkg))
-	buf.Write(contents)
 	if err := os.WriteFile(out, buf.Bytes(), 0666); err != nil {
 		log.Fatalf("failed to write to out file: %v", err)
 	}
@@ -83,10 +95,14 @@ func parseFlags() {
 		if f.Name == "prefix" {
 			prefixSet = true
 		}
+
+		if f.Name == "out" {
+			outSet = true
+		}
 	})
 
-	if structName == "" || source == "" || out == "" || outPkg == "" {
-		log.Fatalf("--struct, --src, --out, and --out-pkg must not be empty")
+	if structName == "" || source == "" {
+		log.Fatalf("--struct and --src must not be empty")
 	}
 }
 
@@ -253,4 +269,3 @@ func parseTypeName(name string) (fieldType, importPath string) {
 
 	return name, ""
 }
-
