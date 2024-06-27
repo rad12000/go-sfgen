@@ -84,6 +84,9 @@ func main() {
 	var file *os.File
 	if appendToOut {
 		file, err = os.OpenFile(out, os.O_APPEND|os.O_RDWR, 0666)
+		if !(typed || genericTyped) {
+			imports = nil
+		}
 		buf2 := resolveImports(must(io.ReadAll(file)), imports)
 		buf2.Write(buf.Bytes())
 		buf = buf2
