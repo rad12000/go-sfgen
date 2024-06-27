@@ -7,9 +7,7 @@ import (
 	"github.com/fatih/structtag"
 	"go/types"
 	"golang.org/x/tools/go/packages"
-	"io"
 	"log"
-	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,7 +19,7 @@ var (
 	structName        string
 	source            string
 	out               string
-	outSet            bool
+	appendToOut       bool
 	outPkg            string
 	targetTag         string
 	export            bool
@@ -45,17 +43,12 @@ func main() {
 	}
 
 	var buf bytes.Buffer
-	if outPkg != "" {
+	if appendToOut {
+		buf.WriteByte('\n')
+	} else {
 		buf.WriteString(fmt.Sprintf("package %s\n", outPkg))
 	}
 	buf.Write(contents)
-
-	if !outSet {
-		if _, err := io.Copy(os.Stdout, &buf); err != nil {
-			log.Fatalf("failed to write to stdout: %v", err)
-		}
-		return
-	}
 
 	out, err := filepath.Abs(out)
 	if err != nil {
@@ -71,13 +64,24 @@ func main() {
 		log.Fatalf("%v", err)
 	}
 
-	if err := os.WriteFile(out, buf.Bytes(), 0666); err != nil {
-		log.Fatalf("failed to write to out file: %v", err)
+	var file *os.File
+	if appendToOut {
+		file, err = os.OpenFile(out, os.O_APPEND|os.O_WRONLY, 0666)
+	} else {
+		file, err = os.OpenFile(out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0666)
+	}
+
+	if err != nil {
+		log.Fatalf("failed to open file at %s: %v", out, err)
+	}
+
+	if _, err = file.Write(buf.Bytes()); err != nil {
+		log.Fatalf("failed to write to out file %s: %v", out, err)
 	}
 
 	cmd := exec.Command("go", "fmt", out)
 	if err := cmd.Run(); err != nil {
-		slog.Warn("failed to format output file", "err", err)
+		log.Fatalf("failed to run 'go fmt %s'", out)
 	}
 }
 
@@ -91,19 +95,16 @@ func parseFlags() {
 	flag.BoolVar(&export, "export", false, "if true, the generated constants will be exported")
 	flag.BoolVar(&includeStructName, "include-struct", false, "if true, the generated constants will be prefixed with the source struct's name")
 	flag.BoolVar(&includeUnexported, "unexported", false, "if true, the generated constants will include fields that are not exported on the struct")
+	flag.BoolVar(&appendToOut, "append", false, "if true, no package line will be generated and the contents will be appended to out")
 	flag.Parse()
 	flag.Visit(func(f *flag.Flag) {
 		if f.Name == "prefix" {
 			prefixSet = true
 		}
-
-		if f.Name == "out" {
-			outSet = true
-		}
 	})
 
-	if structName == "" || source == "" {
-		log.Fatalf("--struct and --src must not be empty")
+	if structName == "" || source == "" || out == "" || outPkg == "" {
+		log.Fatalf("--struct, --src, --out, and --out-pkg must not be empty")
 	}
 }
 
