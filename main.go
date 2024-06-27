@@ -54,6 +54,7 @@ func main() {
 		if _, err := io.Copy(os.Stdout, &buf); err != nil {
 			log.Fatalf("failed to write to stdout: %v", err)
 		}
+		return
 	}
 
 	out, err := filepath.Abs(out)
