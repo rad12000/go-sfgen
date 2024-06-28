@@ -207,7 +207,6 @@ func parsePackage(source, structName string) (code []byte, imports map[string]st
 	}
 	imports = make(map[string]struct{})
 	structPackage := structType.String()[:strings.LastIndexByte(structType.String(), '.')]
-	fmt.Println(structPackage)
 
 	var (
 		buf                 bytes.Buffer
@@ -370,7 +369,6 @@ func loadStruct(source, structName string) (*types.Named, *types.Struct, error) 
 }
 
 func parseTypeName(structPackage string, t types.Type) (fieldType string, importPath []string) {
-	fmt.Printf("%T: %s \n", t, t.String())
 	switch u := t.(type) {
 	case *types.Basic:
 		return u.Name(), nil
