@@ -4,6 +4,7 @@ go 1.19
 
 require (
 	github.com/fatih/structtag v1.2.0
+	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	golang.org/x/tools v0.22.0
 )
 
