@@ -17,6 +17,14 @@ import (
 	"unicode"
 )
 
+type structGenFlags struct {
+	OutputFile       string
+	OutputPackage    string
+	SourceStruct     string
+	SourceStructFile string
+	Tag              string
+}
+
 type typedConst string
 
 const (
@@ -166,20 +174,21 @@ func main() {
 }
 
 func parseFlags() {
-	flag.StringVar(&out, "out", "", "the output filepath")
-	flag.StringVar(&outPkg, "out-pkg", "", "the output package")
+	setFlags := func(f *flag.FlagSet) {
+		f.StringVar(&out, "out", "", "the output filepath")
+		f.StringVar(&outPkg, "out-pkg", "", "the output package")
+		f.Var(&structs, "struct", "the struct to generate field consts for")
+		f.Var(&sources, "src", "the source")
+		f.Var(&tags, "tag", "if provided, the name portion of the provided tag will be used")
+		f.Var(&prefixes, "prefix", "if provided, this value will be prepended to the field's name")
+		f.Var(&exports, "export", "if true, the generated constants will be exported")
+		f.Var(&includeStructs, "include-struct", "if true, the generated constants will be prefixed with the source struct's name")
+		f.Var(&includeUnexporteds, "unexported", "if true, the generated constants will include fields that are not exported on the struct")
+		f.Var(&typeds, "typed", "if true, a new type with the underlying type of string is created and used for each generated const")
+	}
 	flag.StringVar(&argFile, "arg-file", "", "a file where several arguments live")
-
-	flag.Var(&structs, "struct", "the struct to generate field consts for")
-	flag.Var(&sources, "src", "the source")
-	flag.Var(&tags, "tag", "if provided, the name portion of the provided tag will be used")
-	flag.Var(&prefixes, "prefix", "if provided, this value will be prepended to the field's name")
-	flag.Var(&exports, "export", "if true, the generated constants will be exported")
-	flag.Var(&includeStructs, "include-struct", "if true, the generated constants will be prefixed with the source struct's name")
-	flag.Var(&includeUnexporteds, "unexported", "if true, the generated constants will include fields that are not exported on the struct")
-	flag.Var(&typeds, "typed", "if true, a new type with the underlying type of string is created and used for each generated const")
+	setFlags(flag.CommandLine)
 	flag.Parse()
-
 	flag.Visit(func(f *flag.Flag) {
 		if f.Name == "arg-file" {
 			argFileSet = true
@@ -202,7 +211,10 @@ func parseFlags() {
 		if err != nil {
 			log.Fatalf("cannot parse arg file %q: %v", argFile, err)
 		}
+		fmt.Printf("%s\n\n", strings.Join(args, ", "))
 
+		flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+		setFlags(flag.CommandLine)
 		if err = flag.CommandLine.Parse(args); err != nil {
 			log.Fatalf("cannot parse flags in arg file %q: %v", argFile, err)
 		}
@@ -212,15 +224,32 @@ func parseFlags() {
 		log.Fatalf("--struct, --src, --out, and --out-pkg must not be empty")
 	}
 
+	m := map[string]int{
+		"--tag":            tags.Len(),
+		"--export":         exports.Len(),
+		"--src":            sources.Len(),
+		"--prefix":         prefixes.Len(),
+		"--include-struct": includeStructs.Len(),
+		"--unexported":     includeUnexporteds.Len(),
+		"--typed":          typeds.Len(),
+	}
+
 	sLen := len(structs.values)
-	if sLen > 1 && (sLen != len(tags.values) ||
-		sLen != len(exports.values) ||
-		sLen != len(sources.values) ||
-		sLen != len(prefixes.values) ||
-		sLen != len(includeStructs.values) ||
-		sLen != len(includeUnexporteds.values) ||
-		sLen != len(typeds.values)) {
-		log.Fatal("if multiple struct values are provided, all flags (except the --out and --out-pkg) must be provided for each struct")
+	if sLen > 1 {
+		hasPrintedInitialMessage := false
+		for f, l := range m {
+			if l < sLen {
+				if !hasPrintedInitialMessage {
+					log.Println("if multiple struct values are provided, all flags (except the --out and --out-pkg) must be provided for each struct")
+					hasPrintedInitialMessage = true
+				}
+
+				log.Printf("missing flag %q\n", f)
+			}
+		}
+		if hasPrintedInitialMessage {
+			log.Fatal()
+		}
 	}
 }
 

@@ -29,6 +29,10 @@ type MultiValue[T any] struct {
 	parse  func(string) (T, error)
 }
 
+func (m *MultiValue[T]) Len() int {
+	return len(m.values)
+}
+
 func (m *MultiValue[T]) Get(i int) T {
 	return m.values[i]
 }
