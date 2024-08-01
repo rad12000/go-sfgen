@@ -266,14 +266,21 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 
 	baseName := calculateBaseName(f)
 	firstChar := strings.ToLower(baseName[:1])
+
+	if f.Style != "" {
+		outBuf.WriteString(fmt.Sprintf("// %s is a strong type generated from %s. Its type is used for all of its related generated constants.\n", baseName, f.SourceStruct))
+	}
+
 	switch f.Style {
 	case StyleAlias:
 		outBuf.WriteString(fmt.Sprintf("type %s = string\n", baseName))
 	case StyleTyped:
 		outBuf.WriteString(fmt.Sprintf("type %s string\n", baseName))
+		outBuf.WriteString("// String implements the [fmt.Stringer] interface\n")
 		outBuf.WriteString(fmt.Sprintf("func (%s %s) String() string { return (string)(%s) }\n", firstChar, baseName, firstChar))
 	case StyleGeneric:
 		outBuf.WriteString(fmt.Sprintf("type %s[T any] string\n", baseName))
+		outBuf.WriteString("// String implements the [fmt.Stringer] interface\n")
 		outBuf.WriteString(fmt.Sprintf("func (%s %s[T]) String() string { return (string)(%s) }\n", firstChar, baseName, firstChar))
 	}
 
@@ -315,6 +322,7 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 			constBuf.WriteByte('\n')
 		}
 
+		constBuf.WriteString(fmt.Sprintf("// %s is a was generated from the %s.%s struct field\n", constName, f.SourceStruct, field.Name()))
 		switch f.Style {
 		case StyleAlias, StyleTyped:
 			constBuf.WriteString(fmt.Sprintf("%s %s = %q", constName, baseName, value))
@@ -328,6 +336,8 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 	}
 
 	if f.Iter {
+		outBuf.WriteString(fmt.Sprintf("// All was generated from the [%s] struct. It returns an array of all [%s]'s associated constant values.\n", f.SourceStruct, baseName))
+
 		var sb strings.Builder
 		for _, n := range fieldNames {
 			sb.WriteByte('"')
