@@ -5,102 +5,90 @@ import (
 	"flag"
 	"fmt"
 	"github.com/fatih/structtag"
-	"github.com/google/shlex"
 	"go/types"
-	"golang.org/x/tools/go/packages"
-	"io"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"unicode"
 )
 
-type structGenFlags struct {
-	OutputFile       string
-	OutputPackage    string
-	SourceStruct     string
-	SourceStructFile string
-	Tag              string
-}
-
-type typedConst string
-
-const (
-	None    typedConst = "none"
-	Typed   typedConst = "typed"
-	Generic typedConst = "generic"
-)
-
-var (
-	out        string
-	outPkg     string
-	argFile    string
-	argFileSet bool
-
-	structs  = NewMultiStringValue()
-	sources  = NewMultiStringValue()
-	tags     = NewMultiStringValue()
-	prefixes = NewMultiValue(func(s string) (*string, error) {
-		if s == "none" {
-			return nil, nil
-		}
-
-		return &s, nil
-	})
-	exports            = NewMultiBoolValue()
-	includeStructs     = NewMultiBoolValue()
-	includeUnexporteds = NewMultiBoolValue()
-	typeds             = NewMultiValue(func(s string) (typedConst, error) {
-		switch typedConst(s) {
-		case None:
-			return None, nil
-		case Typed:
-			return Typed, nil
-		case Generic:
-			return Generic, nil
-		}
-
-		return "", fmt.Errorf("invalid typed value: %s. Must be one of: %s, %s, %s", s, None, Typed, Generic)
-	})
-)
-
-type flagValues struct {
-	typed             typedConst
-	includeUnexported bool
-	includeStruct     bool
-	export            bool
-	prefix            *string
-	tag               string
-	source            string
-	srcStruct         string
-}
-
 func main() {
-	os.Setenv("GODEBUG", "gotypesalias=1")
-	defer os.Unsetenv("GODEBUG")
-	parseFlags()
+	err := os.Setenv("GODEBUG", "gotypesalias=1")
+	if err != nil {
+		log.Fatalf("failed to set GODEBUG variable")
+	}
+	defer func() {
+		_ = os.Unsetenv("GODEBUG")
+	}()
 
-	imports := make([][]string, len(structs.values))
-	contents := make([][]byte, len(structs.values))
-	for i := 0; i < len(structs.values); i++ {
-		flagValues := flagValues{
-			typed:             typeds.GetOrDefault(i, None),
-			includeUnexported: includeUnexporteds.GetOrDefault(i, false),
-			includeStruct:     includeStructs.GetOrDefault(i, false),
-			export:            exports.GetOrDefault(i, false),
-			prefix:            prefixes.GetOrDefault(i, nil),
-			tag:               tags.GetOrDefault(i, ""),
-			srcStruct:         structs.Get(i),
-		}
-		source, err := filepath.Abs(filepath.Dir(sources.Get(i)))
+	var (
+		flagOptions      = parseOptions()
+		outputFileGroups = make(map[string][]FlagOptions)
+		packageDirs      = make([]string, 0, len(flagOptions))
+	)
+
+	for _, fOpt := range flagOptions {
+		absSrcDir, err := filepath.Abs(fOpt.SourceStructDir)
 		if err != nil {
-			log.Fatalf("failed: %v", err)
+			log.Fatalf("failed to parse source dir: %s", fOpt.SourceStructDir)
 		}
-		flagValues.source = source
+		packageDirs = append(packageDirs, absSrcDir)
+		fOpt.SourceStructDir = absSrcDir
 
-		contents[i], imports[i], err = parsePackage(flagValues)
+		if fOpt.OutputFile == "" {
+			fOpt.OutputFile = fmt.Sprintf("%s_%s_generated.go", strings.ToLower(fOpt.SourceStruct), strings.ToLower(calculateBaseName(fOpt)))
+		}
+
+		absOutDir, err := filepath.Abs(fOpt.OutputDir)
+		if err != nil {
+			log.Fatalf("failed to get absolute path to out file %q: %v", fOpt.OutputFile, err)
+		}
+
+		absOut := filepath.Join(absOutDir, fOpt.OutputFile)
+		fOpt.OutputDir = absOutDir
+		fOpt.OutputFile = absOut
+		fmt.Printf("outdir %s, outfile %s\n", absOutDir, absOut)
+		currentOpts := outputFileGroups[absOut]
+		if len(currentOpts) > 0 && currentOpts[0].OutputPackage != fOpt.OutputPackage {
+			log.Fatalf("invalid package values provided. Cannot use both %q and %q package values within output file %q",
+				currentOpts[0].OutputFile, fOpt.OutputPackage, fOpt.OutputFile)
+		}
+		outputFileGroups[absOut] = append(outputFileGroups[absOut], fOpt)
+	}
+
+	loadPackageScopes(packageDirs)
+
+	var wg sync.WaitGroup
+	for _, group := range outputFileGroups {
+		wg.Add(1)
+		go func(group []FlagOptions) {
+			defer wg.Done()
+			generateCodeForFileGroup(group)
+		}(group)
+	}
+
+	wg.Wait()
+}
+
+func generateCodeForFileGroup(flagOptions []FlagOptions) {
+	if len(flagOptions) == 0 {
+		return
+	}
+
+	var (
+		err      error
+		outPkg   = flagOptions[0].OutputPackage
+		outFile  = flagOptions[0].OutputFile
+		outDir   = flagOptions[0].OutputDir
+		imports  = make([][]string, len(flagOptions))
+		contents = make([][]byte, len(flagOptions))
+	)
+
+	for i, fOpt := range flagOptions {
+		contents[i], imports[i], err = parsePackage(fOpt)
 		if err != nil {
 			log.Fatalf("failed to parse struct: %v", err)
 		}
@@ -137,147 +125,120 @@ func main() {
 		buf.WriteString(")\n")
 	}
 
-	for _, contents := range contents {
-		buf.Write(contents)
+	for _, c := range contents {
+		buf.Write(c)
 		buf.WriteByte('\n')
 	}
 
-	out, err := filepath.Abs(out)
-	if err != nil {
-		log.Fatalf("cannot parse out filepath %v", err)
-	}
-
-	_, err = os.Stat(out)
-	if err != nil {
-		err = os.MkdirAll(filepath.Dir(out), os.ModeDir)
+	if _, err = os.Stat(outFile); err != nil {
+		err = os.MkdirAll(outDir, 0755)
 	}
 
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
 
-	file, err := os.OpenFile(out, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0666)
+	file, err := os.OpenFile(outFile, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
 	if err != nil {
-		log.Fatalf("failed to open file at %s: %v", out, err)
+		log.Fatalf("failed to open file at %s: %v", outFile, err)
 	}
-	defer file.Close()
+	defer func(file *os.File) {
+		_ = file.Close()
+	}(file)
 	_ = file.Truncate(0)
 
 	if _, err = file.Write(buf.Bytes()); err != nil {
-		log.Fatalf("failed to write to out file %s: %v", out, err)
+		log.Fatalf("failed to write to out file %s: %v", outFile, err)
 	}
 
-	cmd := exec.Command("go", "fmt", out)
+	cmd := exec.Command("go", "fmt", outFile)
 	if err := cmd.Run(); err != nil {
-		log.Fatalf("failed to run 'go fmt %s'", out)
+		log.Fatalf("failed to run 'go fmt %s'", outFile)
 	}
 }
 
-func parseFlags() {
-	setFlags := func(f *flag.FlagSet) {
-		f.StringVar(&out, "out", "", "the output filepath")
-		f.StringVar(&outPkg, "out-pkg", "", "the output package")
-		f.Var(&structs, "struct", "the struct to generate field consts for")
-		f.Var(&sources, "src", "the source")
-		f.Var(&tags, "tag", "if provided, the name portion of the provided tag will be used")
-		f.Var(&prefixes, "prefix", "if provided, this value will be prepended to the field's name")
-		f.Var(&exports, "export", "if true, the generated constants will be exported")
-		f.Var(&includeStructs, "include-struct", "if true, the generated constants will be prefixed with the source struct's name")
-		f.Var(&includeUnexporteds, "unexported", "if true, the generated constants will include fields that are not exported on the struct")
-		f.Var(&typeds, "typed", "if true, a new type with the underlying type of string is created and used for each generated const")
-	}
-	flag.StringVar(&argFile, "arg-file", "", "a file where several arguments live")
-	setFlags(flag.CommandLine)
+func parseOptions() []FlagOptions {
+	var (
+		commands     = NewMultiFlagOptions()
+		topLevelOpts FlagOptions
+	)
+
+	flag.Var(&commands, "gen", "accepts all the top level flags in a string, allowing multiple generate commands to be specified")
+	topLevelOpts.RegisterFlags(flag.CommandLine)
 	flag.Parse()
+
+	var (
+		visitedGen    bool
+		visitedNonGen bool
+	)
+
 	flag.Visit(func(f *flag.Flag) {
-		if f.Name == "arg-file" {
-			argFileSet = true
+		if f.Name == "gen" {
+			visitedGen = true
+		} else {
+			visitedNonGen = true
 		}
 	})
 
-	if argFileSet {
-		f, err := os.Open(argFile)
-		if err != nil {
-			log.Fatalf("cannot open arg file %q: %v", argFile, err)
-		}
-
-		defer f.Close()
-		b, err := io.ReadAll(f)
-		if err != nil {
-			log.Fatalf("cannot read arg file %q: %v", argFile, err)
-		}
-
-		args, err := shlex.Split(strings.ReplaceAll(string(b), "\n", " "))
-		if err != nil {
-			log.Fatalf("cannot parse arg file %q: %v", argFile, err)
-		}
-		fmt.Printf("%s\n\n", strings.Join(args, ", "))
-
-		flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-		setFlags(flag.CommandLine)
-		if err = flag.CommandLine.Parse(args); err != nil {
-			log.Fatalf("cannot parse flags in arg file %q: %v", argFile, err)
-		}
+	if visitedGen && visitedNonGen {
+		log.Fatalf("if --gen flags are used, only --gen flags may be provided")
 	}
 
-	if len(structs.values) == 0 || len(sources.values) == 0 || out == "" || outPkg == "" {
-		log.Fatalf("--struct, --src, --out, and --out-pkg must not be empty")
+	if visitedGen {
+		return commands.Slice()
 	}
 
-	m := map[string]int{
-		"--tag":            tags.Len(),
-		"--export":         exports.Len(),
-		"--src":            sources.Len(),
-		"--prefix":         prefixes.Len(),
-		"--include-struct": includeStructs.Len(),
-		"--unexported":     includeUnexporteds.Len(),
-		"--typed":          typeds.Len(),
+	if err := topLevelOpts.Validate(); err != nil {
+		log.Fatal(err.Error())
 	}
 
-	sLen := len(structs.values)
-	if sLen > 1 {
-		hasPrintedInitialMessage := false
-		for f, l := range m {
-			if l < sLen {
-				if !hasPrintedInitialMessage {
-					log.Println("if multiple struct values are provided, all flags (except the --out and --out-pkg) must be provided for each struct")
-					hasPrintedInitialMessage = true
-				}
-
-				log.Printf("missing flag %q\n", f)
-			}
-		}
-		if hasPrintedInitialMessage {
-			log.Fatal()
-		}
-	}
+	return []FlagOptions{topLevelOpts}
 }
 
-func parsePackage(f flagValues) (code []byte, imports []string, err error) {
-	structType, s, err := loadStruct(f.source, f.srcStruct)
+func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
+	if f.Iter && f.Style == StyleAlias {
+		log.Fatalf("Invalid style %s: only %s and %s styles may be used with the --iter flag", f.Style, StyleGeneric, StyleTyped)
+	}
+
+	structType, s, err := loadStruct(f.SourceStructDir, f.SourceStruct)
 	if err != nil {
 		return nil, nil, err
 	}
 	structPackage := structType.String()[:strings.LastIndexByte(structType.String(), '.')]
 
 	var (
-		buf                 bytes.Buffer
+		outBuf              bytes.Buffer
+		constBuf            bytes.Buffer
 		maybeCloseConstants = func(i int) {
 			if i == s.NumFields()-1 {
-				buf.WriteByte(')')
+				constBuf.WriteByte(')')
 			}
 		}
 	)
 
+	baseName := calculateBaseName(f)
+	firstChar := strings.ToLower(baseName[:1])
+	switch f.Style {
+	case StyleAlias:
+		outBuf.WriteString(fmt.Sprintf("type %s = string\n", baseName))
+	case StyleTyped:
+		outBuf.WriteString(fmt.Sprintf("type %s string\n", baseName))
+		outBuf.WriteString(fmt.Sprintf("func (%s %s) String() string { return (string)(%s) }\n", firstChar, baseName, firstChar))
+	case StyleGeneric:
+		outBuf.WriteString(fmt.Sprintf("type %s[T any] string\n", baseName))
+		outBuf.WriteString(fmt.Sprintf("func (%s %s[T]) String() string { return (string)(%s) }\n", firstChar, baseName, firstChar))
+	}
+
+	var fieldNames []string
 	for i := 0; i < s.NumFields(); i++ {
 		field := s.Field(i)
-		if !f.includeUnexported && !field.Exported() {
+		if !f.IncludeUnexportedFields && !field.Exported() {
 			maybeCloseConstants(i)
 			continue
 		}
 
 		tag := s.Tag(i)
-		fieldType, baseName, constName, value, imps, err := parseField(structPackage, field, tag, f)
+		fieldType, constName, value, imps, err := parseField(structPackage, field, tag, baseName, f)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -287,123 +248,125 @@ func parsePackage(f flagValues) (code []byte, imports []string, err error) {
 			continue
 		}
 
-		if f.typed == Generic {
+		if f.Style == StyleGeneric {
 			imports = append(imports, imps...)
 		}
 
 		bName := []rune(baseName)
-		if f.export {
+		if f.Export {
 			bName[0] = unicode.ToUpper(bName[0])
 		} else {
 			bName[0] = unicode.ToLower(bName[0])
 		}
 		baseName = string(bName)
 
-		if buf.Len() == 0 {
-			switch f.typed {
-			case Typed:
-				buf.WriteString(fmt.Sprintf("type %s string\n", baseName))
-				buf.WriteString(fmt.Sprintf("func (f %s) String() string { return (string)(f) }\n", baseName))
-			case Generic:
-				buf.WriteString(fmt.Sprintf("type %s[T any] string\n", baseName))
-				buf.WriteString(fmt.Sprintf("func (f %s[T]) String() string { return (string)(f) }\n", baseName))
-			}
-
-			buf.WriteString("const (")
+		if constBuf.Len() == 0 {
+			constBuf.WriteByte('\n')
+			constBuf.WriteString("const (")
 		} else {
-			buf.WriteByte('\n')
+			constBuf.WriteByte('\n')
 		}
 
-		switch f.typed {
-		case Typed:
-			buf.WriteString(fmt.Sprintf("%s %s = %q", constName, baseName, value))
-		case Generic:
-			buf.WriteString(fmt.Sprintf("%s %s[%s] = %q", constName, baseName, fieldType, value))
+		switch f.Style {
+		case StyleAlias, StyleTyped:
+			constBuf.WriteString(fmt.Sprintf("%s %s = %q", constName, baseName, value))
+		case StyleGeneric:
+			constBuf.WriteString(fmt.Sprintf("%s %s[%s] = %q", constName, baseName, fieldType, value))
 		default:
-			buf.WriteString(fmt.Sprintf("%s = %q", constName, value))
+			constBuf.WriteString(fmt.Sprintf("%s = %q", constName, value))
 		}
+		fieldNames = append(fieldNames, value)
 		maybeCloseConstants(i)
 	}
 
-	return buf.Bytes(), imports, nil
+	if f.Iter {
+		var sb strings.Builder
+		for _, n := range fieldNames {
+			sb.WriteByte('"')
+			sb.WriteString(n)
+			sb.WriteByte('"')
+			sb.WriteByte(',')
+		}
+		fieldNamesStr := sb.String()
+		if f.Style == StyleGeneric {
+			outBuf.WriteString(fmt.Sprintf("func (%s %s[T]) All() [%d]string { return [%d]string{%s} }\n", firstChar, baseName, len(fieldNames), len(fieldNames), fieldNamesStr))
+		} else {
+			outBuf.WriteString(fmt.Sprintf("func (%s %s) All() [%d]string { return [%d]string{%s} }\n", firstChar, baseName, len(fieldNames), len(fieldNames), fieldNamesStr))
+		}
+	}
+
+	if _, err = constBuf.WriteTo(&outBuf); err != nil {
+		log.Fatalf("failed to write full contents in memory: %v", err)
+	}
+
+	return outBuf.Bytes(), imports, nil
 }
 
-func parseField(structPackage string, field *types.Var, tag string, f flagValues) (fieldType, baseName, constName, value string, imps []string, err error) {
+func parseField(structPackage string, field *types.Var, tag, baseName string, f FlagOptions) (fieldType, constName, value string, imps []string, err error) {
 	tags, err := structtag.Parse(tag)
 	if err != nil {
-		return "", "", "", "", nil, fmt.Errorf("failed to parse struct tags for field %s: %w", field.Name(), err)
+		return "", "", "", nil, fmt.Errorf("failed to parse struct tags for field %s: %w", field.Name(), err)
 	}
 
 	fieldType, imps = parseTypeName(structPackage, field.Type())
 	tagNameValue := field.Name()
 
-	if f.tag != "" {
-		nameFromTag, err := tags.Get(f.tag)
+	if f.Tag != "" {
+		nameFromTag, err := tags.Get(f.Tag)
 		if err == nil && len(nameFromTag.Name) > 0 {
 			tagNameValue = nameFromTag.Name
 		}
 	}
 
-	tagName := strings.ToUpper(f.tag)
-	if !f.includeStruct && !f.export {
-		tagName = strings.ToLower(tagName)
+	return fieldType, baseName + field.Name(), tagNameValue, imps, nil
+}
+
+func calculateBaseName(f FlagOptions) string {
+	var (
+		tagName string
+		prefix  string
+	)
+
+	if f.UseStructName || f.Export {
+		tagName = strings.ToUpper(f.Tag)
+	} else {
+		tagName = strings.ToLower(f.Tag)
 	}
 
-	var prefix string
-	if f.prefix == nil {
-		prefix = f.srcStruct + tagName
-		if !f.includeStruct {
+	if f.Prefix == nil {
+		prefix = f.SourceStruct + tagName
+		if !f.UseStructName {
 			prefix = tagName
 		}
 
 		prefix += "Field"
 	} else {
-		prefix = *f.prefix
+		prefix = *f.Prefix
 	}
 
-	cName := []rune(prefix + field.Name())
-	if f.export {
-		cName[0] = unicode.ToUpper(cName[0])
+	properlyCasedName := []rune(prefix)
+	if f.Export {
+		properlyCasedName[0] = unicode.ToUpper(properlyCasedName[0])
 	} else {
-		cName[0] = unicode.ToLower(cName[0])
+		properlyCasedName[0] = unicode.ToLower(properlyCasedName[0])
 	}
 
-	if f.prefix != nil && !strings.Contains(prefix, "Field") {
-		baseName = prefix + "Field"
-	} else {
-		baseName = prefix
-	}
-
-	return fieldType, baseName, string(cName), tagNameValue, imps, nil
+	return string(properlyCasedName)
 }
 
 func loadStruct(source, structName string) (*types.Named, *types.Struct, error) {
-	cfg := &packages.Config{
-		Mode: packages.NeedName | packages.NeedTypes | packages.NeedTypesInfo | packages.NeedSyntax,
-	}
-
-	p, err := packages.Load(cfg, source)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load struct package: %w", err)
-	}
-
-	if len(p) != 1 {
-		return nil, nil, fmt.Errorf("expected 1 package for %s, got %d", source, len(p))
-	}
-
-	if len(p[0].Errors) > 0 {
-		return nil, nil, fmt.Errorf("%v", p[0].Errors)
-	}
-
-	scope := p[0].Types.Scope()
-	if scope == nil {
-		return nil, nil, fmt.Errorf("couldn't find scope: %w", err)
-
+	scope, ok := scopeForPackage(source)
+	if !ok {
+		var a []string
+		for k := range packageNameToScopes {
+			a = append(a, k)
+		}
+		return nil, nil, fmt.Errorf("failed to find package scope: %s, %+v", source, a)
 	}
 
 	foundObj := scope.Lookup(structName) // *types.TypeName is returned here
 	if foundObj == nil {
-		return nil, nil, fmt.Errorf("type %s not found %s: %w", structName, err)
+		return nil, nil, fmt.Errorf("type %s not found in package %s", structName, source)
 	}
 
 	n, ok := foundObj.Type().(*types.Named)

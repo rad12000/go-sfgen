@@ -2,21 +2,12 @@ package main
 
 import (
 	"fmt"
-	"strconv"
 )
 
-func NewMultiStringValue() MultiValue[string] {
-	return NewMultiValue(func(s string) (string, error) {
-		return s, nil
-	})
-}
-
-func NewMultiBoolValue() MultiValue[bool] {
-	return NewMultiValue(func(b string) (bool, error) {
-		if b == "" {
-			return false, nil
-		}
-		return strconv.ParseBool(b)
+func NewMultiFlagOptions() MultiValue[FlagOptions] {
+	return NewMultiValue(func(s string) (FlagOptions, error) {
+		var f FlagOptions
+		return f, f.ParseString(s)
 	})
 }
 
@@ -27,6 +18,10 @@ func NewMultiValue[T any](parse func(string) (T, error)) MultiValue[T] {
 type MultiValue[T any] struct {
 	values []T
 	parse  func(string) (T, error)
+}
+
+func (m *MultiValue[T]) Slice() []T {
+	return m.values
 }
 
 func (m *MultiValue[T]) Len() int {
