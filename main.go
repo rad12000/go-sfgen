@@ -317,12 +317,12 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 
 		if constBuf.Len() == 0 {
 			constBuf.WriteByte('\n')
+			constBuf.WriteString(fmt.Sprintf("// Constants generated from [%s] struct field\n", f.SourceStruct))
 			constBuf.WriteString("const (")
 		} else {
 			constBuf.WriteByte('\n')
 		}
 
-		constBuf.WriteString(fmt.Sprintf("// %s is a was generated from the %s.%s struct field\n", constName, f.SourceStruct, field.Name()))
 		switch f.Style {
 		case StyleAlias, StyleTyped:
 			constBuf.WriteString(fmt.Sprintf("%s %s = %q", constName, baseName, value))
@@ -340,6 +340,7 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 
 		var sb strings.Builder
 		for _, n := range fieldNames {
+			sb.WriteByte('\n')
 			sb.WriteByte('"')
 			sb.WriteString(n)
 			sb.WriteByte('"')
