@@ -50,7 +50,6 @@ func main() {
 		absOut := filepath.Join(absOutDir, fOpt.OutputFile)
 		fOpt.OutputDir = absOutDir
 		fOpt.OutputFile = absOut
-		fmt.Printf("outdir %s, outfile %s\n", absOutDir, absOut)
 		currentOpts := outputFileGroups[absOut]
 		if len(currentOpts) > 0 && currentOpts[0].OutputPackage != fOpt.OutputPackage {
 			log.Fatalf("invalid package values provided. Cannot use both %q and %q package values within output file %q",
