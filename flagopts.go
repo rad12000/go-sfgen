@@ -23,6 +23,7 @@ type FlagOptions struct {
 	SourceStructDir         string
 	Style                   string
 	Tag                     string
+	TagNameRegex            string
 	Prefix                  *string
 	Export                  bool
 	UseStructName           bool
@@ -58,6 +59,8 @@ func (f *FlagOptions) RegisterFlags(flagSet *flag.FlagSet) {
 	flagSet.StringVar(&f.SourceStructDir, "src-dir", ".",
 		"The directory containing the --struct. Defaults to the current directory")
 	flagSet.StringVar(&f.Tag, "tag", "", "if provided, the name in the provided tag will be used")
+	flagSet.StringVar(&f.TagNameRegex, "tag-regex", "",
+		"if provided, the regex will be tested on the specified tag contents. The first capture group will be used as the name. If it is empty, or does not match, the field name will be used instead.")
 	flagSet.Func("prefix", "if provided, this value will be prepended to the field's name", func(s string) error {
 		if f.Prefix != nil {
 			return errors.New("invalid --prefix usage, flag may only be specified once")
@@ -74,6 +77,10 @@ func (f *FlagOptions) RegisterFlags(flagSet *flag.FlagSet) {
 }
 
 func (f *FlagOptions) Validate() error {
+	if f.Tag == "" && len(f.TagNameRegex) > 0 {
+		return fmt.Errorf("cannot use tag regex %q with an empty tag", f.TagNameRegex)
+	}
+
 	type flagNameToValue struct {
 		Name     string
 		Value    string
@@ -108,17 +115,17 @@ func (f *FlagOptions) Validate() error {
 	var err error
 	for _, v := range validations {
 		if v.Required && v.Value == "" {
-			err = errors.Join(err, errors.New(fmt.Sprintf("--%s is required", v.Name)))
+			err = fmt.Errorf("--%s is required\n%s", v.Name, err)
 		}
 
 		if v.NotEmpty && v.Value == "" {
-			err = errors.Join(err, errors.New(fmt.Sprintf("--%s must not be empty", v.Name)))
+			err = fmt.Errorf("--%s must not be empty\n%s", v.Name, err)
 		}
 
 		if v.OneOf != nil {
 			_, ok := v.OneOf[v.Value]
 			if !ok {
-				err = errors.Join(err, fmt.Errorf("--%s must be one of %+v", v.Name, v.OneOf))
+				err = fmt.Errorf("--%s must be one of %+v\n%s", v.Name, v.OneOf, err)
 			}
 		}
 	}
