@@ -1,6 +1,11 @@
 /*
 go-sfgen generates constants from struct fields.
 
+Below is a list of flags that can be used with the //go:generate directive. Along with those flags, the `sfgen:""` tag
+may be used to drive behavior for specific fields.
+`sfgen:"-"` results in skipping the field for code generation. Any other value will be used as the value of the generated
+constant for that field. E.g. `type Person struct { Name string `sfgen:"name"` }` results in `const fieldName = "name"`
+
 Usage:
 
 	go-sfgen --struct [struct_name] [flags]
@@ -293,18 +298,19 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 		}
 
 		tag := s.Tag(i)
-		fieldType, constName, value, imps, err := parseField(structPackage, field, tag, baseName, f)
+
+		parseFieldResult, err := parseField(structPackage, field, tag, baseName, f)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		if value == "-" { // Handle the case that the field is ignored
+		if parseFieldResult.constValue == "-" { // Handle the case that the field is ignored
 			maybeCloseConstants(i)
 			continue
 		}
 
 		if f.Style == StyleGeneric {
-			imports = append(imports, imps...)
+			imports = append(imports, parseFieldResult.requiredImports...)
 		}
 
 		bName := []rune(baseName)
@@ -325,13 +331,13 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 
 		switch f.Style {
 		case StyleAlias, StyleTyped:
-			constBuf.WriteString(fmt.Sprintf("%s %s = %q", constName, baseName, value))
+			constBuf.WriteString(fmt.Sprintf("%s %s = %q", parseFieldResult.constName, baseName, parseFieldResult.constValue))
 		case StyleGeneric:
-			constBuf.WriteString(fmt.Sprintf("%s %s[%s] = %q", constName, baseName, fieldType, value))
+			constBuf.WriteString(fmt.Sprintf("%s %s[%s] = %q", parseFieldResult.constName, baseName, parseFieldResult.fieldType, parseFieldResult.constValue))
 		default:
-			constBuf.WriteString(fmt.Sprintf("%s = %q", constName, value))
+			constBuf.WriteString(fmt.Sprintf("%s = %q", parseFieldResult.constName, parseFieldResult.constValue))
 		}
-		fieldNames = append(fieldNames, value)
+		fieldNames = append(fieldNames, parseFieldResult.constValue)
 		maybeCloseConstants(i)
 	}
 
@@ -361,21 +367,34 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 	return outBuf.Bytes(), imports, nil
 }
 
-func parseField(structPackage string, field *types.Var, tag, baseName string, f FlagOptions) (fieldType, constName, value string, imps []string, err error) {
+type parseFieldResult struct {
+	fieldType, constName, constValue string
+	requiredImports                  []string
+}
+
+func parseField(structPackage string, field *types.Var, tag, baseName string, f FlagOptions) (parseFieldResult, error) {
 	tags, err := structtag.Parse(tag)
 	if err != nil {
-		return "", "", "", nil, fmt.Errorf("failed to parse struct tags for field %s: %w", field.Name(), err)
+		return parseFieldResult{}, fmt.Errorf("failed to parse struct tags for field %s: %w", field.Name(), err)
 	}
 
-	fieldType, imps = parseTypeName(structPackage, field.Type())
-	tagNameValue := field.Name()
+	fieldType, imps := parseTypeName(structPackage, field.Type())
+	if sfgenTag, sfGenErr := tags.Get("sfgen"); sfGenErr == nil && len(sfgenTag.Name) > 0 {
+		return parseFieldResult{
+			fieldType:       fieldType,
+			constName:       baseName + field.Name(),
+			constValue:      sfgenTag.Name,
+			requiredImports: imps,
+		}, nil
+	}
 
+	tagNameValue := field.Name()
 	if f.Tag != "" {
 		nameFromTag, err := tags.Get(f.Tag)
 		if err == nil && len(nameFromTag.Value()) > 0 && f.TagNameRegex != "" {
 			re, err := regexp.Compile(f.TagNameRegex)
 			if err != nil {
-				return "", "", "", nil, fmt.Errorf("failed to compile regex expression %q: %w", f.TagNameRegex, err)
+				return parseFieldResult{}, fmt.Errorf("failed to compile regex expression %q: %w", f.TagNameRegex, err)
 			}
 
 			if matches := re.FindStringSubmatch(nameFromTag.Value()); len(matches) >= 2 {
@@ -388,7 +407,12 @@ func parseField(structPackage string, field *types.Var, tag, baseName string, f 
 		}
 	}
 
-	return fieldType, baseName + field.Name(), tagNameValue, imps, nil
+	return parseFieldResult{
+		fieldType:       fieldType,
+		constName:       baseName + field.Name(),
+		constValue:      tagNameValue,
+		requiredImports: imps,
+	}, nil
 }
 
 func calculateBaseName(f FlagOptions) string {
