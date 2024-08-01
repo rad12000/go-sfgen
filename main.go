@@ -15,6 +15,12 @@ import (
 	"unicode"
 )
 
+var flagOptions []FlagOptions
+
+func init() {
+	flagOptions = parseOptions()
+}
+
 func main() {
 	err := os.Setenv("GODEBUG", "gotypesalias=1")
 	if err != nil {
@@ -25,7 +31,6 @@ func main() {
 	}()
 
 	var (
-		flagOptions      = parseOptions()
 		outputFileGroups = make(map[string][]FlagOptions)
 		packageDirs      = make([]string, 0, len(flagOptions))
 	)
