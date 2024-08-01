@@ -1,4 +1,4 @@
-module github.com/rad12000/go/sfgen
+module github.com/rad12000/go-sfgen
 
 go 1.19
 
