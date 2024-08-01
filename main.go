@@ -1,3 +1,46 @@
+/*
+go-sfgen generates constants from struct fields.
+
+Usage:
+
+	go-sfgen --struct [struct_name] [flags]
+
+Flags are:
+
+	-export
+	      If true, the generated constants will be exported
+	-gen value
+	      accepts all the top level flags in a string, allowing multiple generate commands to be specified
+	-include-struct-name
+	      If true, the generated constants will be prefixed with the source struct name
+	-include-unexported-fields
+	      If true, the generated constants will include fields that are not exported on the struct
+	-iter
+	      if true, an All() method will be generated for the type, which returns an array of all the values generated
+	-out-dir string
+	      The directory in which to place the generated file. Defaults to the current directory (default ".")
+	-out-file string
+	      The file to write generated output to. Defaults to [--struct]_[prefix]_generated.go
+	-out-pkg string
+	      The package the generated code should belong to. Defaults to the package containing the go:generate directive
+	-prefix value
+	      A value to prepend to the generated const names. Defaults to [tag]Field
+	-src-dir string
+	      The directory containing the --struct. Defaults to the current directory (default ".")
+	-struct string
+	      The struct to use as the source for code generation. REQUIRED
+	-style string
+	      Specifies the style of constants desired. Valid options are: alias, typed, generic
+	-tag string
+	      If provided, the provided tag will be parsed for each field on the --struct.
+	      If the tag is missing, the struct field's name is used.
+	      Otherwise, the first attribute in the tag is used as the name'
+	-tag-regex string
+	      This flag requires the --tag flag be provided as well.
+	      The provided regex will be tested on the specified tag contents for each field.
+	      The first capture group will be used as the value for the generated constant.
+	      If the regex does not match the tag contents, the struct field's' name will be used instead.
+*/
 package main
 
 import (

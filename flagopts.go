@@ -51,29 +51,35 @@ func (f *FlagOptions) Parse(args []string) error {
 }
 
 func (f *FlagOptions) RegisterFlags(flagSet *flag.FlagSet) {
-	flagSet.StringVar(&f.OutputFile, "out-file", "", "the file to write generated code to")
-	flagSet.StringVar(&f.OutputDir, "out-dir", ".", "the directory to output code gen to")
-	flagSet.StringVar(&f.OutputPackage, "out-pkg", os.Getenv("GOPACKAGE"), /* set by go generate */
-		"The package the generated code should belong to. Defaults to the package containing the go:generate directive")
-	flagSet.StringVar(&f.SourceStruct, "struct", "", "The struct to generate field consts for")
+	flagSet.StringVar(&f.OutputFile, "out-file", "", `The file to write generated output to. Defaults to [--struct]_[prefix]_generated.go`)
+	flagSet.StringVar(&f.OutputDir, "out-dir", ".", `The directory in which to place the generated file. Defaults to the current directory`)
+	flagSet.StringVar(&f.OutputPackage, "out-pkg", os.Getenv("GOPACKAGE"),
+		`The package the generated code should belong to. Defaults to the package containing the go:generate directive`)
+	flagSet.StringVar(&f.SourceStruct, "struct", "", "The struct to use as the source for code generation. REQUIRED")
 	flagSet.StringVar(&f.SourceStructDir, "src-dir", ".",
 		"The directory containing the --struct. Defaults to the current directory")
-	flagSet.StringVar(&f.Tag, "tag", "", "if provided, the name in the provided tag will be used")
+	flagSet.StringVar(&f.Tag, "tag", "",
+		`If provided, the provided tag will be parsed for each field on the --struct. 
+If the tag is missing, the struct field's name is used. 
+Otherwise, the first attribute in the tag is used as the name'`)
 	flagSet.StringVar(&f.TagNameRegex, "tag-regex", "",
-		"if provided, the regex will be tested on the specified tag contents. The first capture group will be used as the name. If it is empty, or does not match, the field name will be used instead.")
-	flagSet.Func("prefix", "if provided, this value will be prepended to the field's name", func(s string) error {
+		`This flag requires the --tag flag be provided as well. 
+The provided regex will be tested on the specified tag contents for each field.
+The first capture group will be used as the value for the generated constant. 
+If the regex does not match the tag contents, the struct field's' name will be used instead.`)
+
+	flagSet.Func("prefix", "A value to prepend to the generated const names. Defaults to [tag]Field", func(s string) error {
 		if f.Prefix != nil {
 			return errors.New("invalid --prefix usage, flag may only be specified once")
 		}
 		f.Prefix = &s
 		return nil
 	})
-	flagSet.StringVar(&f.Style, "style", "",
-		"determines whether the fields will have their own simple type, a generic type, or no typing. Valid options are: alias, typed, generic")
-	flagSet.BoolVar(&f.Export, "export", false, "if true, the generated constants will be exported")
-	flagSet.BoolVar(&f.UseStructName, "include-struct-name", false, "if true, the generated constants will be prefixed with the source struct name")
-	flagSet.BoolVar(&f.IncludeUnexportedFields, "include-unexported-fields", false, "if true, the generated constants will include fields that are not exported on the struct")
-	flagSet.BoolVar(&f.Iter, "iter", false, "if true, an All() method will be generated for the type. Note this only is compatible with Go 1.23+")
+	flagSet.StringVar(&f.Style, "style", "", `Specifies the style of constants desired. Valid options are: alias, typed, generic`)
+	flagSet.BoolVar(&f.Export, "export", false, "If true, the generated constants will be exported")
+	flagSet.BoolVar(&f.UseStructName, "include-struct-name", false, "If true, the generated constants will be prefixed with the source struct name")
+	flagSet.BoolVar(&f.IncludeUnexportedFields, "include-unexported-fields", false, "If true, the generated constants will include fields that are not exported on the struct")
+	flagSet.BoolVar(&f.Iter, "iter", false, "if true, an All() method will be generated for the type, which returns an array of all the values generated")
 }
 
 func (f *FlagOptions) Validate() error {
