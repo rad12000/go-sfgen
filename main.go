@@ -379,11 +379,11 @@ func parseField(structPackage string, field *types.Var, tag, baseName string, f 
 	}
 
 	fieldType, imps := parseTypeName(structPackage, field.Type())
-	if sfgenTag, sfGenErr := tags.Get("sfgen"); sfGenErr == nil && len(sfgenTag.Name) > 0 {
+	if sfgenTag, ok := sfgenTagName(f.Tag, tags); ok {
 		return parseFieldResult{
 			fieldType:       fieldType,
 			constName:       baseName + field.Name(),
-			constValue:      sfgenTag.Name,
+			constValue:      sfgenTag,
 			requiredImports: imps,
 		}, nil
 	}
@@ -413,6 +413,45 @@ func parseField(structPackage string, field *types.Var, tag, baseName string, f 
 		constValue:      tagNameValue,
 		requiredImports: imps,
 	}, nil
+}
+
+func sfgenTagName(targetTagName string, tags *structtag.Tags) (string, bool) {
+	sfgenTag, err := tags.Get("sfgen")
+	if err != nil {
+		return "", false
+	}
+
+	tagValue := sfgenTag.Value()
+	if tagValue == "" {
+		return "", false
+	}
+
+	tagParts := strings.SplitN(strings.TrimSpace(tagValue), ",", 2)
+	tagName := tagParts[0] // We are guaranteed at least a slice with len(1)
+	if len(tagParts) == 1 {
+		return tagName, tagName != ""
+	}
+
+	// From here on we know that tagParts length is 2
+	tagSpecificValues := strings.Split(tagParts[1], " ")
+	for _, tagSpecificVal := range tagSpecificValues {
+		tagSpecificVal = strings.TrimSpace(tagSpecificVal)
+		if tagSpecificVal == "" {
+			continue
+		}
+
+		tagValParts := strings.SplitN(tagSpecificVal, ":", 2)
+		if len(tagValParts) != 2 || tagValParts[0] != targetTagName {
+			continue
+		}
+
+		if tagValParts[1] != "" {
+			tagName = tagValParts[1]
+			break
+		}
+	}
+
+	return tagName, tagName != ""
 }
 
 func calculateBaseName(f FlagOptions) string {
