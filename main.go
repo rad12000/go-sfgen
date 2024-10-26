@@ -260,12 +260,10 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 	structPackage := structType.String()[:strings.LastIndexByte(structType.String(), '.')]
 
 	var (
-		outBuf              bytes.Buffer
-		constBuf            bytes.Buffer
-		maybeCloseConstants = func(i int) {
-			if i == s.NumFields()-1 {
-				constBuf.WriteByte(')')
-			}
+		outBuf         bytes.Buffer
+		constBuf       bytes.Buffer
+		closeConstants = func() {
+			constBuf.WriteByte(')')
 		}
 	)
 
@@ -289,37 +287,20 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 		outBuf.WriteString(fmt.Sprintf("func (%s %s[T]) String() string { return (string)(%s) }\n", firstChar, baseName, firstChar))
 	}
 
+	fields, err := parseStructFields(f, structPackage, baseName, s)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if len(fields) == 0 {
+		closeConstants()
+	}
+
 	var fieldNames []string
-	for i := 0; i < s.NumFields(); i++ {
-		field := s.Field(i)
-		if !f.IncludeUnexportedFields && !field.Exported() {
-			maybeCloseConstants(i)
-			continue
-		}
-
-		tag := s.Tag(i)
-
-		parseFieldResult, err := parseField(structPackage, field, tag, baseName, f)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		if parseFieldResult.constValue == "-" { // Handle the case that the field is ignored
-			maybeCloseConstants(i)
-			continue
-		}
-
+	for i, field := range fields {
 		if f.Style == StyleGeneric {
-			imports = append(imports, parseFieldResult.requiredImports...)
+			imports = append(imports, field.requiredImports...)
 		}
-
-		bName := []rune(baseName)
-		if f.Export {
-			bName[0] = unicode.ToUpper(bName[0])
-		} else {
-			bName[0] = unicode.ToLower(bName[0])
-		}
-		baseName = string(bName)
 
 		if constBuf.Len() == 0 {
 			constBuf.WriteByte('\n')
@@ -331,14 +312,16 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 
 		switch f.Style {
 		case StyleAlias, StyleTyped:
-			constBuf.WriteString(fmt.Sprintf("%s %s = %q", parseFieldResult.constName, baseName, parseFieldResult.constValue))
+			constBuf.WriteString(fmt.Sprintf("%s %s = %q", field.constName, field.baseName, field.constValue))
 		case StyleGeneric:
-			constBuf.WriteString(fmt.Sprintf("%s %s[%s] = %q", parseFieldResult.constName, baseName, parseFieldResult.fieldType, parseFieldResult.constValue))
+			constBuf.WriteString(fmt.Sprintf("%s %s[%s] = %q", field.constName, field.baseName, field.fieldType, field.constValue))
 		default:
-			constBuf.WriteString(fmt.Sprintf("%s = %q", parseFieldResult.constName, parseFieldResult.constValue))
+			constBuf.WriteString(fmt.Sprintf("%s = %q", field.constName, field.constValue))
 		}
-		fieldNames = append(fieldNames, parseFieldResult.constValue)
-		maybeCloseConstants(i)
+		fieldNames = append(fieldNames, field.constValue)
+		if i == len(fields)-1 {
+			closeConstants()
+		}
 	}
 
 	if f.Iter {
@@ -365,6 +348,88 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 	}
 
 	return outBuf.Bytes(), imports, nil
+}
+
+type parsedField struct {
+	parseFieldResult
+	baseName string
+}
+
+func fieldIsEmbeddedStruct(f *types.Var) (*types.Struct, bool) {
+	if !f.Embedded() {
+		return nil, false
+	}
+
+	t := f.Type()
+	for {
+		switch v := t.(type) {
+		case *types.Pointer:
+			t = t.Underlying()
+		case *types.Named:
+			t = t.Underlying()
+		case *types.Struct:
+			return v, true
+		default:
+			return nil, false
+		}
+	}
+}
+
+func parseStructFields(f FlagOptions, structPackage, baseName string, s *types.Struct) ([]parsedField, error) {
+	var (
+		topLevelFields = make(map[string]struct{})
+		fields         []parsedField
+		embeddedFields []parsedField
+	)
+	for i := 0; i < s.NumFields(); i++ {
+		field := s.Field(i)
+		if !f.IncludeUnexportedFields && !field.Exported() {
+			continue
+		}
+
+		tag := s.Tag(i)
+		parseFieldResult, err := parseField(structPackage, field, tag, baseName, f)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse field with name %s: %w", field.Name(), err)
+		}
+
+		if parseFieldResult.constValue == "-" { // Handle the case that the field is ignored
+			continue
+		}
+
+		if structType, ok := fieldIsEmbeddedStruct(field); ok {
+			embFields, err := parseStructFields(f, structPackage, baseName, structType)
+			if err != nil {
+				return nil, err
+			}
+
+			embeddedFields = append(embeddedFields, embFields...)
+			continue
+		}
+
+		bName := []rune(baseName)
+		if f.Export {
+			bName[0] = unicode.ToUpper(bName[0])
+		} else {
+			bName[0] = unicode.ToLower(bName[0])
+		}
+		baseName = string(bName)
+		fields = append(fields, parsedField{
+			parseFieldResult: parseFieldResult,
+			baseName:         baseName,
+		})
+		topLevelFields[parseFieldResult.constName] = struct{}{}
+	}
+
+	for _, field := range embeddedFields {
+		_, ok := topLevelFields[field.constName]
+		if ok {
+			continue
+		}
+		fields = append(fields, field)
+	}
+
+	return fields, nil
 }
 
 type parseFieldResult struct {
@@ -518,13 +583,26 @@ func loadStruct(source, structName string) (*types.Named, *types.Struct, error) 
 func parseNamedType(structPackage string, u types.Type) (string, []string) {
 	name := u.String()
 	dotIndex := strings.LastIndexByte(name, '.')
-	pkgPath := name[:dotIndex]
+	pkgPath := name
+	if dotIndex >= 0 {
+		pkgPath = name[:dotIndex]
+	}
+
 	if pkgPath == structPackage {
 		return name[dotIndex+1:], nil
 	}
 
 	slashIndex := strings.LastIndexByte(name, '/')
-	return name[slashIndex+1:], []string{name[:dotIndex]}
+	newName := name
+	if slashIndex >= 0 {
+		newName = name[slashIndex+1:]
+	}
+
+	if dotIndex >= 0 {
+		return newName, []string{name[:dotIndex]}
+	}
+
+	return newName, nil
 }
 
 func parseTypeNameSignature(structPackage string, u *types.Signature) (string, []string) {
