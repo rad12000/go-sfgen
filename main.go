@@ -576,7 +576,8 @@ func loadStruct(source packageToLoad, structName string) (*types.Named, *types.S
 		return nil, nil, fmt.Errorf("failed to find package scope: %s, %+v", source, a)
 	}
 
-	foundObj := scope.Lookup(structName) // *types.TypeName is returned here
+	// *types.TypeName is returned here
+	foundObj := scope.Lookup(structName)
 	if foundObj == nil {
 		foundObj = scope.Lookup(strings.SplitN(structName, ".", 2)[1])
 	}
