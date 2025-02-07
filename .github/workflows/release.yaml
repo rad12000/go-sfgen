@@ -1,9 +1,9 @@
 name: Bump version
 on:
   push:
-#    paths-ignore:
-#      - '**/*README.md'
-#      - '.github/**'
+    paths-ignore:
+      - '**/*README.md'
+      - '.github/**'
     branches:
       - main
 jobs:
