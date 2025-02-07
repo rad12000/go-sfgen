@@ -23,21 +23,15 @@ jobs:
   release:
     needs: version
     name: Create Release
-    runs-on: macos-latest #ubuntu-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-
-      - name: Update Version File
-        run: echo ${{ needs.version.outputs.release-version }} > pkg/version/version
 
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version-file: go.mod
-
-      - name: Build
-        run: make download-dependencies && make release
 
       - name: Release
         uses: softprops/action-gh-release@v1
