@@ -1,13 +1,16 @@
 name: Bump version
 on:
   push:
-    paths-ignore:
-      - '**/*README.md'
-      - '.github/**'
+#    paths-ignore:
+#      - '**/*README.md'
+#      - '.github/**'
     branches:
       - main
 jobs:
   version:
+    permissions:
+      contents: write
+
     name: Bump Version
     runs-on: ubuntu-latest
     steps:
