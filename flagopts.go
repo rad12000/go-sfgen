@@ -16,11 +16,14 @@ const (
 )
 
 type FlagOptions struct {
+	DryRun                  bool
 	OutputFile              string
 	OutputDir               string
 	OutputPackage           string
 	SourceStruct            string
 	SourceStructDir         string
+	PackageName             string
+	IncludeTests            bool
 	Style                   string
 	Tag                     string
 	TagNameRegex            string
@@ -29,6 +32,7 @@ type FlagOptions struct {
 	UseStructName           bool
 	IncludeUnexportedFields bool
 	Iter                    bool
+	packagesToLoad          packageToLoad
 }
 
 func (f *FlagOptions) ParseString(args string) error {
@@ -52,10 +56,13 @@ func (f *FlagOptions) Parse(args []string) error {
 
 func (f *FlagOptions) RegisterFlags(flagSet *flag.FlagSet) {
 	flagSet.StringVar(&f.OutputFile, "out-file", "", `The file to write generated output to. Defaults to [--struct]_[prefix]_generated.go`)
+	flagSet.BoolVar(&f.DryRun, "dry-run", false, `If true, no output file will be written to, but instead results will be written to stdout`)
 	flagSet.StringVar(&f.OutputDir, "out-dir", ".", `The directory in which to place the generated file. Defaults to the current directory`)
 	flagSet.StringVar(&f.OutputPackage, "out-pkg", os.Getenv("GOPACKAGE"),
 		`The package the generated code should belong to. Defaults to the package containing the go:generate directive`)
 	flagSet.StringVar(&f.SourceStruct, "struct", "", "The struct to use as the source for code generation. REQUIRED")
+	flagSet.StringVar(&f.PackageName, "package", "", "The name of the package in which the source struct resides.")
+	flagSet.BoolVar(&f.IncludeTests, "tests", false, "If true, source code in tests will be included. This flag will often need to be used along with the --package flag.")
 	flagSet.StringVar(&f.SourceStructDir, "src-dir", ".",
 		"The directory containing the --struct. Defaults to the current directory")
 	flagSet.StringVar(&f.Tag, "tag", "",
@@ -121,17 +128,17 @@ func (f *FlagOptions) Validate() error {
 	var err error
 	for _, v := range validations {
 		if v.Required && v.Value == "" {
-			err = fmt.Errorf("--%s is required\n%s", v.Name, err)
+			err = errors.Join(err, fmt.Errorf("--%s is required", v.Name))
 		}
 
 		if v.NotEmpty && v.Value == "" {
-			err = fmt.Errorf("--%s must not be empty\n%s", v.Name, err)
+			err = errors.Join(err, fmt.Errorf("--%s must not be empty", v.Name))
 		}
 
 		if v.OneOf != nil {
 			_, ok := v.OneOf[v.Value]
 			if !ok {
-				err = fmt.Errorf("--%s must be one of %+v\n%s", v.Name, v.OneOf, err)
+				err = errors.Join(err, fmt.Errorf("--%s must be one of %+v", v.Name, v.OneOf))
 			}
 		}
 	}

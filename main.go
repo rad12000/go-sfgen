@@ -1,10 +1,7 @@
 /*
 go-sfgen generates constants from struct fields.
 
-Below is a list of flags that can be used with the //go:generate directive. Along with those flags, the `sfgen:""` tag
-may be used to drive behavior for specific fields.
-`sfgen:"-"` results in skipping the field for code generation. Any other value will be used as the value of the generated
-constant for that field. E.g. `type Person struct { Name string `sfgen:"name"` }` results in `const fieldName = "name"`
+Below is a list of flags that can be used with the //go:generate directive.
 
 Usage:
 
@@ -53,10 +50,10 @@ import (
 	"flag"
 	"fmt"
 	"github.com/fatih/structtag"
+	"go/format"
 	"go/types"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -66,11 +63,8 @@ import (
 
 var flagOptions []FlagOptions
 
-func init() {
-	flagOptions = parseOptions()
-}
-
 func main() {
+	flagOptions = parseOptions()
 	err := os.Setenv("GODEBUG", "gotypesalias=1")
 	if err != nil {
 		log.Fatalf("failed to set GODEBUG variable")
@@ -81,7 +75,7 @@ func main() {
 
 	var (
 		outputFileGroups = make(map[string][]FlagOptions)
-		packageDirs      = make([]string, 0, len(flagOptions))
+		packagesToLoad   = make([]packageToLoad, 0, len(flagOptions))
 	)
 
 	for _, fOpt := range flagOptions {
@@ -89,7 +83,8 @@ func main() {
 		if err != nil {
 			log.Fatalf("failed to parse source dir: %s", fOpt.SourceStructDir)
 		}
-		packageDirs = append(packageDirs, absSrcDir)
+		pkgToLoad := packageToLoad{Dir: absSrcDir, IncludeTests: fOpt.IncludeTests, PackageName: fOpt.PackageName}
+		packagesToLoad = append(packagesToLoad, pkgToLoad)
 		fOpt.SourceStructDir = absSrcDir
 
 		if fOpt.OutputFile == "" {
@@ -109,10 +104,12 @@ func main() {
 			log.Fatalf("invalid package values provided. Cannot use both %q and %q package values within output file %q",
 				currentOpts[0].OutputFile, fOpt.OutputPackage, fOpt.OutputFile)
 		}
+
+		fOpt.packagesToLoad = pkgToLoad
 		outputFileGroups[absOut] = append(outputFileGroups[absOut], fOpt)
 	}
 
-	loadPackageScopes(packageDirs)
+	loadPackageScopes(packagesToLoad)
 
 	var wg sync.WaitGroup
 	for _, group := range outputFileGroups {
@@ -136,6 +133,7 @@ func generateCodeForFileGroup(flagOptions []FlagOptions) {
 		outPkg   = flagOptions[0].OutputPackage
 		outFile  = flagOptions[0].OutputFile
 		outDir   = flagOptions[0].OutputDir
+		dryRun   = flagOptions[0].DryRun
 		imports  = make([][]string, len(flagOptions))
 		contents = make([][]byte, len(flagOptions))
 	)
@@ -183,6 +181,11 @@ func generateCodeForFileGroup(flagOptions []FlagOptions) {
 		buf.WriteByte('\n')
 	}
 
+	if dryRun {
+		printDryRun(buf.Bytes())
+		return
+	}
+
 	if _, err = os.Stat(outFile); err != nil {
 		err = os.MkdirAll(outDir, 0755)
 	}
@@ -200,13 +203,24 @@ func generateCodeForFileGroup(flagOptions []FlagOptions) {
 	}(file)
 	_ = file.Truncate(0)
 
-	if _, err = file.Write(buf.Bytes()); err != nil {
-		log.Fatalf("failed to write to out file %s: %v", outFile, err)
+	out, err := format.Source(buf.Bytes())
+	if err != nil {
+		panic(fmt.Sprintf("failed to format output '%v'", err))
 	}
 
-	cmd := exec.Command("go", "fmt", outFile)
-	if err := cmd.Run(); err != nil {
-		log.Fatalf("failed to run 'go fmt %s'", outFile)
+	if _, err = file.Write(out); err != nil {
+		log.Fatalf("failed to write to out file %s: %v", outFile, err)
+	}
+}
+
+func printDryRun(b []byte) {
+	out, err := format.Source(b)
+	if err != nil {
+		panic(fmt.Sprintf("failed to format output '%v': %s", err, b))
+	}
+
+	if _, err = os.Stdout.Write(out); err != nil {
+		panic(fmt.Sprintf("failed to write to stdout: %v", err))
 	}
 }
 
@@ -253,7 +267,7 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 		log.Fatalf("Invalid style %s: only %s and %s styles may be used with the --iter flag", f.Style, StyleGeneric, StyleTyped)
 	}
 
-	structType, s, err := loadStruct(f.SourceStructDir, f.SourceStruct)
+	structType, s, err := loadStruct(f.packagesToLoad, f.SourceStruct)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -552,8 +566,8 @@ func calculateBaseName(f FlagOptions) string {
 	return string(properlyCasedName)
 }
 
-func loadStruct(source, structName string) (*types.Named, *types.Struct, error) {
-	scope, ok := scopeForPackage(source)
+func loadStruct(source packageToLoad, structName string) (*types.Named, *types.Struct, error) {
+	pkg, scope, ok := scopeForPackage(source)
 	if !ok {
 		var a []string
 		for k := range packageNameToScopes {
@@ -564,7 +578,10 @@ func loadStruct(source, structName string) (*types.Named, *types.Struct, error) 
 
 	foundObj := scope.Lookup(structName) // *types.TypeName is returned here
 	if foundObj == nil {
-		return nil, nil, fmt.Errorf("type %s not found in package %s", structName, source)
+		foundObj = scope.Lookup(strings.SplitN(structName, ".", 2)[1])
+	}
+	if foundObj == nil {
+		return nil, nil, fmt.Errorf("type %s not found in package %s#%s", structName, pkg.Dir, pkg.Name)
 	}
 
 	n, ok := foundObj.Type().(*types.Named)
