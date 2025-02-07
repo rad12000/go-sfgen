@@ -136,3 +136,7 @@ Individual field names can be customized via the `sfgen` struct tag. The tag's v
 The `field_name`, if present, will be used as the fieldName in the generated constant, regardless of what we may be generating constants for.
 If what is essentially a global override does not fit your use case, the `field_name` may be left empty and followed by a comma. After
 the comma, any number of space-separated `tag_name:field_name` key value pairs may be provided. See the examples for more detail.
+
+
+## More Examples
+Look at the examples on pkg.go.dev for more detailed examples.
