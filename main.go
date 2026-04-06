@@ -63,6 +63,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"text/template"
 	"unicode"
 
 	_ "embed"
@@ -272,7 +273,7 @@ func parseOptions() []FlagOptions {
 	return []FlagOptions{topLevelOpts}
 }
 
-type templateData struct {
+type TemplateData struct {
 	Flags  *FlagOptions
 	Struct *ParsedStruct
 }
@@ -296,13 +297,25 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 	parsedStruct.Name = structType.Obj().Name()
 
 	if f.Template != "" {
-		templateWrapper, err := newTemplateWrapper(f.Template, os.DirFS("/")) // Note: the forward slash does not work on windows
+		templateWrapper, err := newTemplateWrapper(
+			func(t *template.Template) (*template.Template, error) {
+				contents, err := os.ReadFile(f.Template)
+				if err != nil {
+					return nil, fmt.Errorf("failed to read template %q: %w", f.Template, err)
+				}
+
+				return t.Parse(string(contents))
+			},
+		)
 		if err != nil {
 			return nil, nil, err
 		}
 
 		var outBuf bytes.Buffer
-		templateData := templateData{}
+		templateData := TemplateData{
+			Flags:  &f,
+			Struct: &parsedStruct,
+		}
 		err = templateWrapper.Template.Execute(&outBuf, templateData)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to execute template: %w", err)

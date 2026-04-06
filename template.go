@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io/fs"
 	"log"
 	"text/template"
 )
@@ -20,10 +19,10 @@ func (t *templateWrapper) Imports() []string {
 	return result
 }
 
-func newTemplateWrapper(templatePath string, fs fs.FS) (*templateWrapper, error) {
+func newTemplateWrapper(parseTemplate func(*template.Template) (*template.Template, error)) (*templateWrapper, error) {
 	imports := make(map[string]struct{})
-	parsedTemplate := template.New("root")
-	parsedTemplate.Funcs(template.FuncMap{
+	tmpl := template.New("root")
+	tmpl.Funcs(template.FuncMap{
 		"fatalf": func(format string, args ...any) string {
 			log.Fatalf(format, args...)
 			return ""
@@ -36,12 +35,12 @@ func newTemplateWrapper(templatePath string, fs fs.FS) (*templateWrapper, error)
 		},
 	})
 
-	parsedTemplate, err := parsedTemplate.ParseFS(fs, templatePath)
+	tmpl, err := parseTemplate(tmpl)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse default template: %w", err)
 	}
 
 	return &templateWrapper{
-		Template: parsedTemplate,
+		Template: tmpl,
 	}, nil
 }

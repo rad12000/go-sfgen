@@ -94,6 +94,13 @@ func runConversionTest(t *testing.T, tc genTestCase) {
 	actual, err := os.ReadFile(tc.goldenPath)
 	require.NoError(t, err, "failed to read generated file: %s", tc.goldenPath)
 
+	f, err := os.Create(tc.goldenPath)
+	require.NoError(t, err, "failed to cleanup golden files")
+	defer func() { _ = f.Close() }()
+
+	_, err = f.Write(currentValue)
+	require.NoError(t, err, "failed to revert golden file")
+
 	if *updateGolden {
 		t.Logf("Updated golden file: %s", tc.goldenPath)
 		return
