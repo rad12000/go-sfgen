@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -62,11 +63,12 @@ func discoverGenFiles(t *testing.T) []genTestCase {
 				return nil
 			}
 
-			goldenPath := goldenDir + path
+			genPath := filepath.Join(genDir, path)
+			goldenPath := filepath.Join(goldenDir, path)
 			testName := strings.TrimSuffix(path, ".go")
 			tests = append(tests, genTestCase{
 				name:       testName,
-				genPath:    path,
+				genPath:    genPath,
 				goldenPath: goldenPath,
 			})
 
@@ -83,7 +85,10 @@ func runConversionTest(t *testing.T, tc genTestCase) {
 	currentValue, err := os.ReadFile(tc.goldenPath)
 	require.NoError(t, err, "failed to read current state of golden file ")
 
-	err = exec.Command(*goExec, "generate", tc.genPath).Run()
+	cmd := exec.CommandContext(t.Context(), *goExec, "generate", tc.genPath)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
 	require.NoError(t, err, "code generation failed for: %s", tc.genPath)
 
 	actual, err := os.ReadFile(tc.goldenPath)

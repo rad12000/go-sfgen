@@ -321,7 +321,6 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 
 	var fieldNames []string
 	for i, field := range fields {
-		fmt.Println("looking at field", field.FieldName)
 		if f.Style == StyleGeneric {
 			imports = append(imports, field.Imports()...)
 		}
