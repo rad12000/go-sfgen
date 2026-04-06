@@ -13,7 +13,7 @@ func (f field) String() string {
 	return string(f)
 }
 
-// Constants generated from the fields defined on the [.Struct.Name] struct.
+// Constants generated from the fields defined on the [IterTypedStruct] struct.
 const (
 	fieldOne   field = "One"
 	fieldTwo   field = "Two"

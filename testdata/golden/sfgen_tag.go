@@ -13,7 +13,7 @@ func (j jsonField) String() string {
 	return string(j)
 }
 
-// Constants generated from the fields defined on the [.Struct.Name] struct.
+// Constants generated from the fields defined on the [SfgenTagStruct] struct.
 const (
 	jsonFieldNormal      jsonField = "normal_field"
 	jsonFieldOverridden  jsonField = "custom_override"

@@ -4,7 +4,7 @@
 
 package gen
 
-// Constants generated from the fields defined on the [.Struct.Name] struct.
+// Constants generated from the fields defined on the [TagDBStruct] struct.
 const (
 	dbFieldUserID    = "user_id"
 	dbFieldUserName  = "user_name"

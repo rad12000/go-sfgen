@@ -4,7 +4,7 @@
 
 package gen
 
-// Constants generated from the fields defined on the [.Struct.Name] struct.
+// Constants generated from the fields defined on the [CustomPrefixExportStruct] struct.
 const (
 	MyCustomAlpha = "Alpha"
 	MyCustomBeta  = "Beta"

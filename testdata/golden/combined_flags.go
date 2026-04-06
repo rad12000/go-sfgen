@@ -13,7 +13,7 @@ func (c CombinedStructJSONField) String() string {
 	return string(c)
 }
 
-// Constants generated from the fields defined on the [.Struct.Name] struct.
+// Constants generated from the fields defined on the [CombinedStruct] struct.
 const (
 	CombinedStructJSONFieldID       CombinedStructJSONField = "id"
 	CombinedStructJSONFieldFullName CombinedStructJSONField = "full_name"

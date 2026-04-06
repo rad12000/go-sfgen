@@ -13,7 +13,7 @@ func (f field) String() string {
 	return string(f)
 }
 
-// Constants generated from the fields defined on the [.Struct.Name] struct.
+// Constants generated from the fields defined on the [TypedStruct] struct.
 const (
 	fieldName    field = "Name"
 	fieldAge     field = "Age"
