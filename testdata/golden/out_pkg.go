@@ -4,8 +4,15 @@
 
 package custompkg
 
+// field is a strong type generated from OutPkgStruct. Its type is used for all of its related generated constants.
+type field[T any] string
+
+// String implements the [fmt.Stringer] interface
+func (f field[T]) String() string { return (string)(f) }
+
 // Constants generated from [OutPkgStruct] struct field
 const (
-	fieldServer = "Server"
-	fieldPort   = "Port"
+	fieldServer            field[string] = "Server"
+	fieldPort              field[int]    = "Port"
+	fieldExternalReference field[Foo]    = "ExternalReference"
 )

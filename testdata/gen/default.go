@@ -15,6 +15,7 @@ func (n Number[T]) Value() int {
 }
 
 type Simple struct {
+	// String has a basic description here
 	String  string
 	Map     map[string]Simple
 	Slice   []Simple

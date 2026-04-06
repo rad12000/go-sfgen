@@ -1,7 +1,11 @@
-//go:generate go run ../../... -out-file ../golden/out_pkg.go --struct OutPkgStruct --out-pkg custompkg
+//go:generate go run ../../... -out-file ../golden/out_pkg.go --struct OutPkgStruct --out-pkg custompkg --style generic
 package gen
 
-type OutPkgStruct struct {
-	Server string
-	Port   int
-}
+type (
+	Foo          struct{}
+	OutPkgStruct struct {
+		Server            string
+		Port              int
+		ExternalReference Foo // TODO: this should actually result in the correct package being imported
+	}
+)
