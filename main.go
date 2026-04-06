@@ -118,16 +118,16 @@ func main() {
 
 	loadPackageScopes(packagesToLoad)
 
-	var wg sync.WaitGroup
+	// var wg sync.WaitGroup
 	for _, group := range outputFileGroups {
-		wg.Add(1)
-		go func(group []FlagOptions) {
-			defer wg.Done()
-			generateCodeForFileGroup(group)
-		}(group)
+		// wg.Add(1)
+		// go func(group []FlagOptions) {
+		// 	defer wg.Done()
+		generateCodeForFileGroup(group)
+		// }(group)
 	}
 
-	wg.Wait()
+	// wg.Wait()
 }
 
 func generateCodeForFileGroup(flagOptions []FlagOptions) {
@@ -193,14 +193,14 @@ func generateCodeForFileGroup(flagOptions []FlagOptions) {
 	}
 
 	if _, err = os.Stat(outFile); err != nil {
-		err = os.MkdirAll(outDir, 0755)
+		err = os.MkdirAll(outDir, 0o755)
 	}
 
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
 
-	file, err := os.OpenFile(outFile, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(outFile, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
 	if err != nil {
 		log.Fatalf("failed to open file at %s: %v", outFile, err)
 	}
@@ -209,8 +209,10 @@ func generateCodeForFileGroup(flagOptions []FlagOptions) {
 	}(file)
 	_ = file.Truncate(0)
 
-	out, err := format.Source(buf.Bytes())
+	unformatted := buf.Bytes()
+	out, err := format.Source(unformatted)
 	if err != nil {
+		_, _ = os.Stdout.Write(unformatted)
 		panic(fmt.Sprintf("failed to format output '%v'", err))
 	}
 
@@ -307,10 +309,11 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 		fmt.Fprintf(&outBuf, "func (%s %s[T]) String() string { return (string)(%s) }\n", firstChar, baseName, firstChar)
 	}
 
-	fields, err := parseStructFields(f, structPackage, baseName, s)
+	parsedStruct, err := parseStructFields(f, structPackage, baseName, s)
 	if err != nil {
 		return nil, nil, err
 	}
+	fields := parsedStruct.Fields
 
 	if len(fields) == 0 {
 		closeConstants()
@@ -318,8 +321,9 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 
 	var fieldNames []string
 	for i, field := range fields {
+		fmt.Println("looking at field", field.FieldName)
 		if f.Style == StyleGeneric {
-			imports = append(imports, field.Imports...)
+			imports = append(imports, field.Imports()...)
 		}
 
 		if constBuf.Len() == 0 {
@@ -332,9 +336,9 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 
 		switch f.Style {
 		case StyleAlias, StyleTyped:
-			fmt.Fprintf(&constBuf, "%s %s = %q", field.ConstName, field.BaseName, field.ConstValue)
+			fmt.Fprintf(&constBuf, "%s %s = %q", field.ConstName, parsedStruct.BaseName, field.ConstValue)
 		case StyleGeneric:
-			fmt.Fprintf(&constBuf, "%s %s[%s] = %q", field.ConstName, field.BaseName, field.TypeName, field.ConstValue)
+			fmt.Fprintf(&constBuf, "%s %s[%s] = %q", field.ConstName, parsedStruct.BaseName, field.TypeName(), field.ConstValue)
 		default:
 			fmt.Fprintf(&constBuf, "%s = %q", field.ConstName, field.ConstValue)
 		}
@@ -345,7 +349,7 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 	}
 
 	if f.Iter {
-		outBuf.WriteString(fmt.Sprintf("// All was generated from the [%s] struct. It returns an array of all [%s]'s associated constant values.\n", f.SourceStruct, baseName))
+		fmt.Fprintf(&outBuf, "// All was generated from the [%s] struct. It returns an array of all [%s]'s associated constant values.\n", f.SourceStruct, baseName)
 
 		var sb strings.Builder
 		for _, n := range fieldNames {
@@ -370,11 +374,6 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 	return outBuf.Bytes(), imports, nil
 }
 
-type FieldWithBaseName struct {
-	ParsedField
-	BaseName string
-}
-
 func fieldIsEmbeddedStruct(f *types.Var) (*types.Struct, bool) {
 	if !f.Embedded() {
 		return nil, false
@@ -397,16 +396,29 @@ func fieldIsEmbeddedStruct(f *types.Var) (*types.Struct, bool) {
 
 var seen = make(map[string]struct{})
 
-func parseStructFields(f FlagOptions, structPackage, baseName string, s *types.Struct) ([]FieldWithBaseName, error) {
+type parseStructFieldsResult struct {
+	BaseName string
+	Fields   []ParsedField
+}
+
+func parseStructFields(f FlagOptions, structPackage, baseName string, s *types.Struct) (parseStructFieldsResult, error) {
 	if _, ok := seen[s.String()]; ok {
-		return nil, nil
+		return parseStructFieldsResult{}, nil
 	}
 	seen[s.String()] = struct{}{}
 
+	bName := []rune(baseName)
+	if f.Export {
+		bName[0] = unicode.ToUpper(bName[0])
+	} else {
+		bName[0] = unicode.ToLower(bName[0])
+	}
+	baseName = string(bName)
+
 	var (
 		topLevelFields = make(map[string]struct{})
-		fields         []FieldWithBaseName
-		embeddedFields []FieldWithBaseName
+		fields         []ParsedField
+		embeddedFields []ParsedField
 	)
 	for i := 0; i < s.NumFields(); i++ {
 		field := s.Field(i)
@@ -415,9 +427,9 @@ func parseStructFields(f FlagOptions, structPackage, baseName string, s *types.S
 		}
 
 		tag := s.Tag(i)
-		parseFieldResult, err := parseField(structPackage, field, tag, baseName, f)
+		parseFieldResult, err := parseTopLevelField(structPackage, field, tag, baseName, f)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse field with name %s: %w", field.Name(), err)
+			return parseStructFieldsResult{}, fmt.Errorf("failed to parse field with name %s: %w", field.Name(), err)
 		}
 
 		if parseFieldResult.ConstValue == "-" { // Handle the case that the field is ignored
@@ -427,24 +439,14 @@ func parseStructFields(f FlagOptions, structPackage, baseName string, s *types.S
 		if structType, ok := fieldIsEmbeddedStruct(field); ok {
 			embFields, err := parseStructFields(f, structPackage, baseName, structType)
 			if err != nil {
-				return nil, err
+				return parseStructFieldsResult{}, err
 			}
 
-			embeddedFields = append(embeddedFields, embFields...)
+			embeddedFields = append(embeddedFields, embFields.Fields...)
 			continue
 		}
 
-		bName := []rune(baseName)
-		if f.Export {
-			bName[0] = unicode.ToUpper(bName[0])
-		} else {
-			bName[0] = unicode.ToLower(bName[0])
-		}
-		baseName = string(bName)
-		fields = append(fields, FieldWithBaseName{
-			ParsedField: parseFieldResult,
-			BaseName:    baseName,
-		})
+		fields = append(fields, parseFieldResult)
 		topLevelFields[parseFieldResult.ConstName] = struct{}{}
 	}
 
@@ -456,11 +458,14 @@ func parseStructFields(f FlagOptions, structPackage, baseName string, s *types.S
 		fields = append(fields, field)
 	}
 
-	return fields, nil
+	return parseStructFieldsResult{
+		BaseName: baseName,
+		Fields:   fields,
+	}, nil
 }
 
 type ParsedField struct {
-	FieldType
+	StructField
 
 	// ConstName is the name of the constant to be generated for this field.
 	// For example, if the source struct is "Config", the field is "Timeout", and the prefix is "Field", this will be "ConfigFieldTimeout" or "FieldTimeout" depending on whether the --include-struct-name flag is used.
@@ -471,18 +476,18 @@ type ParsedField struct {
 	ConstValue string
 }
 
-func parseField(structPackage string, field *types.Var, tag, baseName string, f FlagOptions) (ParsedField, error) {
+func parseTopLevelField(structPackage string, field *types.Var, tag, baseName string, f FlagOptions) (ParsedField, error) {
 	tags, err := structtag.Parse(tag)
 	if err != nil {
 		return ParsedField{}, fmt.Errorf("failed to parse struct tags for field %s: %w", field.Name(), err)
 	}
 
-	fieldType := parseTypeName(structPackage, field.Type())
+	structField := parseStructField(structPackage, field)
 	if sfgenTag, ok := sfgenTagName(f.Tag, tags); ok {
 		return ParsedField{
-			ConstName:  baseName + field.Name(),
-			ConstValue: sfgenTag,
-			FieldType:  fieldType,
+			ConstName:   baseName + field.Name(),
+			ConstValue:  sfgenTag,
+			StructField: structField,
 		}, nil
 	}
 
@@ -506,10 +511,20 @@ func parseField(structPackage string, field *types.Var, tag, baseName string, f 
 	}
 
 	return ParsedField{
-		ConstName:  baseName + field.Name(),
-		ConstValue: tagNameValue,
-		FieldType:  fieldType,
+		ConstName:   baseName + field.Name(),
+		ConstValue:  tagNameValue,
+		StructField: structField,
 	}, nil
+}
+
+func parseStructField(structPackage string, field *types.Var) StructField {
+	fieldType := parseTypeName(structPackage, field.Type())
+	return StructField{
+		Embedded:  field.Embedded(),
+		Exported:  field.Exported(),
+		FieldName: field.Name(),
+		FieldType: fieldType,
+	}
 }
 
 func sfgenTagName(targetTagName string, tags *structtag.Tags) (string, bool) {
@@ -641,39 +656,78 @@ func parseNamedType(structPackage string, u types.Type) (string, []string) {
 	return newName, nil
 }
 
-func parseTypeNameSignature(structPackage string, u *types.Signature) (string, []string) {
-	var (
-		sb      strings.Builder
-		imports []string
-	)
+func parseTypeNameSignature(structPackage string, u *types.Signature) *FieldType {
+	result := FuncSignature{
+		Parameters:       make([]FuncParam, 0, u.Params().Len()),
+		ReturnParameters: make([]FuncParam, 0, u.Results().Len()),
+	}
 
-	sb.WriteString("func (")
 	for i := 0; i < u.Params().Len(); i++ {
 		param := u.Params().At(i)
 		parsedType := parseTypeName(structPackage, param.Type())
-		imports = append(imports, parsedType.Imports...)
-		if i > 0 && i < u.Params().Len() {
-			sb.WriteByte(',')
-		}
-		sb.WriteString(parsedType.TypeName)
+		result.Parameters = append(result.Parameters, FuncParam{
+			Name: param.Name(),
+			Type: parsedType,
+		})
 	}
-	sb.WriteByte(')')
 
-	if u.Results().Len() > 1 {
-		sb.WriteByte('(')
-	}
 	for i := 0; i < u.Results().Len(); i++ {
 		param := u.Results().At(i)
 		parsedType := parseTypeName(structPackage, param.Type())
-		imports = append(imports, parsedType.Imports...)
-		if i > 0 && i < u.Results().Len() {
-			sb.WriteByte(',')
-		}
-		sb.WriteString(parsedType.TypeName)
-	}
-	if u.Results().Len() > 1 {
-		sb.WriteByte(')')
+		result.ReturnParameters = append(result.Parameters, FuncParam{
+			Name: param.Name(),
+			Type: parsedType,
+		})
 	}
 
-	return sb.String(), imports
+	typeNameAndImports := sync.OnceValues(func() (string, []string) {
+		var (
+			sb      strings.Builder
+			imports []string
+		)
+		sb.WriteString("func (")
+
+		for i, param := range result.Parameters {
+			imports = append(imports, param.Type.Imports()...)
+			if i > 0 && i < len(result.Parameters) {
+				sb.WriteByte(',')
+			}
+			sb.WriteString(param.Name)
+			sb.WriteByte(' ')
+			sb.WriteString(param.Type.TypeName())
+		}
+
+		sb.WriteByte(')')
+
+		if len(result.ReturnParameters) > 1 {
+			sb.WriteByte('(')
+		}
+
+		for i, param := range result.ReturnParameters {
+			imports = append(imports, param.Type.Imports()...)
+			if i > 0 && i < len(result.ReturnParameters) {
+				sb.WriteByte(',')
+			}
+			sb.WriteString(param.Type.TypeName())
+		}
+
+		if len(result.ReturnParameters) > 1 {
+			sb.WriteByte(')')
+		}
+
+		return sb.String(), imports
+	})
+
+	return &FieldType{
+		TypeName: func() string {
+			typeName, _ := typeNameAndImports()
+			return typeName
+		},
+		Imports: func() []string {
+			_, imports := typeNameAndImports()
+			return imports
+		},
+		IsFuncSignature: true,
+		FuncSignature:   result,
+	}
 }
