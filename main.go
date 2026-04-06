@@ -65,6 +65,8 @@ import (
 	"sync"
 	"unicode"
 
+	_ "embed"
+
 	"github.com/fatih/structtag"
 )
 
@@ -270,6 +272,11 @@ func parseOptions() []FlagOptions {
 	return []FlagOptions{topLevelOpts}
 }
 
+type templateData struct {
+	Flags  *FlagOptions
+	Struct *ParsedStruct
+}
+
 func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 	if f.Iter && f.Style == StyleAlias {
 		log.Fatalf("Invalid style %s: only %s and %s styles may be used with the --iter flag", f.Style, StyleGeneric, StyleTyped)
@@ -279,7 +286,30 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 	if err != nil {
 		return nil, nil, err
 	}
+
+	baseName := calculateBaseName(f)
 	structPackage := structType.String()[:strings.LastIndexByte(structType.String(), '.')]
+	parsedStruct, err := parseStructFields(f, structPackage, baseName, s)
+	if err != nil {
+		return nil, nil, err
+	}
+	parsedStruct.Name = structType.Obj().Name()
+
+	if f.Template != "" {
+		templateWrapper, err := newTemplateWrapper(f.Template, os.DirFS("/")) // Note: the forward slash does not work on windows
+		if err != nil {
+			return nil, nil, err
+		}
+
+		var outBuf bytes.Buffer
+		templateData := templateData{}
+		err = templateWrapper.Template.Execute(&outBuf, templateData)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to execute template: %w", err)
+		}
+
+		return outBuf.Bytes(), templateWrapper.Imports(), nil
+	}
 
 	var (
 		outBuf         bytes.Buffer
@@ -289,7 +319,6 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 		}
 	)
 
-	baseName := calculateBaseName(f)
 	firstChar := strings.ToLower(baseName[:1])
 
 	if f.Style != "" {
@@ -309,10 +338,6 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 		fmt.Fprintf(&outBuf, "func (%s %s[T]) String() string { return (string)(%s) }\n", firstChar, baseName, firstChar)
 	}
 
-	parsedStruct, err := parseStructFields(f, structPackage, baseName, s)
-	if err != nil {
-		return nil, nil, err
-	}
 	fields := parsedStruct.Fields
 
 	if len(fields) == 0 {
@@ -360,7 +385,7 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 		}
 		fieldNamesStr := sb.String()
 		if f.Style == StyleGeneric {
-			outBuf.WriteString(fmt.Sprintf("func (%s %s[T]) All() [%d]string { return [%d]string{%s} }\n", firstChar, baseName, len(fieldNames), len(fieldNames), fieldNamesStr))
+			fmt.Fprintf(&outBuf, "func (%s %s[T]) All() [%d]string { return [%d]string{%s} }\n", firstChar, baseName, len(fieldNames), len(fieldNames), fieldNamesStr)
 		} else {
 			fmt.Fprintf(&outBuf, "func (%s %s) All() [%d]string { return [%d]string{%s} }\n", firstChar, baseName, len(fieldNames), len(fieldNames), fieldNamesStr)
 		}
@@ -393,19 +418,13 @@ func fieldIsEmbeddedStruct(f *types.Var) (*types.Struct, bool) {
 	}
 }
 
-var seen = make(map[string]struct{})
-
-type parseStructFieldsResult struct {
+type ParsedStruct struct {
+	Name     string
 	BaseName string
 	Fields   []ParsedField
 }
 
-func parseStructFields(f FlagOptions, structPackage, baseName string, s *types.Struct) (parseStructFieldsResult, error) {
-	if _, ok := seen[s.String()]; ok {
-		return parseStructFieldsResult{}, nil
-	}
-	seen[s.String()] = struct{}{}
-
+func parseStructFields(f FlagOptions, structPackage, baseName string, s *types.Struct) (ParsedStruct, error) {
 	bName := []rune(baseName)
 	if f.Export {
 		bName[0] = unicode.ToUpper(bName[0])
@@ -428,7 +447,7 @@ func parseStructFields(f FlagOptions, structPackage, baseName string, s *types.S
 		tag := s.Tag(i)
 		parseFieldResult, err := parseTopLevelField(structPackage, field, tag, baseName, f)
 		if err != nil {
-			return parseStructFieldsResult{}, fmt.Errorf("failed to parse field with name %s: %w", field.Name(), err)
+			return ParsedStruct{}, fmt.Errorf("failed to parse field with name %s: %w", field.Name(), err)
 		}
 
 		if parseFieldResult.ConstValue == "-" { // Handle the case that the field is ignored
@@ -438,7 +457,7 @@ func parseStructFields(f FlagOptions, structPackage, baseName string, s *types.S
 		if structType, ok := fieldIsEmbeddedStruct(field); ok {
 			embFields, err := parseStructFields(f, structPackage, baseName, structType)
 			if err != nil {
-				return parseStructFieldsResult{}, err
+				return ParsedStruct{}, err
 			}
 
 			embeddedFields = append(embeddedFields, embFields.Fields...)
@@ -457,7 +476,7 @@ func parseStructFields(f FlagOptions, structPackage, baseName string, s *types.S
 		fields = append(fields, field)
 	}
 
-	return parseStructFieldsResult{
+	return ParsedStruct{
 		BaseName: baseName,
 		Fields:   fields,
 	}, nil
