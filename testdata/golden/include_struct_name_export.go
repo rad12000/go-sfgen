@@ -4,7 +4,7 @@
 
 package gen
 
-// Constants generated from [StructNameExportStruct] struct field
+// Constants generated from the fields defined on the [.Struct.Name] struct.
 const (
 	StructNameExportStructFieldWidth  = "Width"
 	StructNameExportStructFieldHeight = "Height"

@@ -4,13 +4,16 @@
 
 package gen
 
-// jsonField is a strong type generated from SfgenTagStruct. Its type is used for all of its related generated constants.
+// jsonField is a type, generated from SfgenTagStruct
+// Its type is used for all of its related generated constants.
 type jsonField string
 
-// String implements the [fmt.Stringer] interface
-func (j jsonField) String() string { return (string)(j) }
+// String implements the [fmt.Stringer] interface.
+func (j jsonField) String() string {
+	return string(j)
+}
 
-// Constants generated from [SfgenTagStruct] struct field
+// Constants generated from the fields defined on the [.Struct.Name] struct.
 const (
 	jsonFieldNormal      jsonField = "normal_field"
 	jsonFieldOverridden  jsonField = "custom_override"

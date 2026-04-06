@@ -4,7 +4,7 @@
 
 package gen
 
-// Constants generated from [StructNameStruct] struct field
+// Constants generated from the fields defined on the [.Struct.Name] struct.
 const (
 	structNameStructFieldID     = "ID"
 	structNameStructFieldLabel  = "Label"

@@ -4,13 +4,16 @@
 
 package gen
 
-// field is a strong type generated from ChildStruct. Its type is used for all of its related generated constants.
+// field is a type, generated from ChildStruct
+// Its type is used for all of its related generated constants.
 type field string
 
-// String implements the [fmt.Stringer] interface
-func (f field) String() string { return (string)(f) }
+// String implements the [fmt.Stringer] interface.
+func (f field) String() string {
+	return string(f)
+}
 
-// Constants generated from [ChildStruct] struct field
+// Constants generated from the fields defined on the [.Struct.Name] struct.
 const (
 	fieldChildField  field = "ChildField"
 	fieldSharedField field = "SharedField"

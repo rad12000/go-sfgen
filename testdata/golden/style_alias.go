@@ -4,10 +4,11 @@
 
 package gen
 
-// field is a strong type generated from AliasStruct. Its type is used for all of its related generated constants.
+// field is a type, generated from AliasStruct
+// Its type is used for all of its related generated constants.
 type field = string
 
-// Constants generated from [AliasStruct] struct field
+// Constants generated from the fields defined on the [.Struct.Name] struct.
 const (
 	fieldFirstName field = "FirstName"
 	fieldLastName  field = "LastName"

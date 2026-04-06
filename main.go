@@ -75,6 +75,22 @@ import (
 
 var flagOptions []FlagOptions
 
+//go:embed templates/default.gotmpl
+var defaultTemplateStr string
+
+var (
+	defaultTemplateOnce sync.Once
+	defaultTemplateRaw  *template.Template
+	defaultTemplateErr  error
+)
+
+func defaultTemplate(t *template.Template) (*template.Template, error) {
+	defaultTemplateOnce.Do(func() {
+		defaultTemplateRaw, defaultTemplateErr = t.Parse(defaultTemplateStr)
+	})
+	return defaultTemplateRaw, defaultTemplateErr
+}
+
 func main() {
 	flagOptions = parseOptions()
 	err := os.Setenv("GODEBUG", "gotypesalias=1")
@@ -297,9 +313,11 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 		return nil, nil, err
 	}
 	parsedStruct.Name = structType.Obj().Name()
+	parsedStruct.BaseName = baseName
 
+	var templateWrapper *templateWrapper
 	if f.Template != "" {
-		templateWrapper, err := newTemplateWrapper(
+		templateWrapper, err = newTemplateWrapper(
 			func(t *template.Template) (*template.Template, error) {
 				contents, err := os.ReadFile(f.Template)
 				if err != nil {
@@ -312,105 +330,24 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 		if err != nil {
 			return nil, nil, err
 		}
-
-		var outBuf bytes.Buffer
-		templateData := TemplateData{
-			Flags:  &f,
-			Struct: &parsedStruct,
-		}
-		err = templateWrapper.Template.Execute(&outBuf, templateData)
+	} else {
+		templateWrapper, err = newTemplateWrapper(defaultTemplate)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to execute template: %w", err)
-		}
-
-		return outBuf.Bytes(), templateWrapper.Imports(), nil
-	}
-
-	var (
-		outBuf         bytes.Buffer
-		constBuf       bytes.Buffer
-		closeConstants = func() {
-			constBuf.WriteByte(')')
-		}
-	)
-
-	firstChar := strings.ToLower(baseName[:1])
-
-	if f.Style != "" {
-		fmt.Fprintf(&outBuf, "// %s is a strong type generated from %s. Its type is used for all of its related generated constants.\n", baseName, f.SourceStruct)
-	}
-
-	switch f.Style {
-	case StyleAlias:
-		fmt.Fprintf(&outBuf, "type %s = string\n", baseName)
-	case StyleTyped:
-		fmt.Fprintf(&outBuf, "type %s string\n", baseName)
-		outBuf.WriteString("// String implements the [fmt.Stringer] interface\n")
-		fmt.Fprintf(&outBuf, "func (%s %s) String() string { return (string)(%s) }\n", firstChar, baseName, firstChar)
-	case StyleGeneric:
-		fmt.Fprintf(&outBuf, "type %s[T any] string\n", baseName)
-		outBuf.WriteString("// String implements the [fmt.Stringer] interface\n")
-		fmt.Fprintf(&outBuf, "func (%s %s[T]) String() string { return (string)(%s) }\n", firstChar, baseName, firstChar)
-	}
-
-	fields := parsedStruct.Fields
-
-	if len(fields) == 0 {
-		closeConstants()
-	}
-
-	var fieldNames []string
-	for i, field := range fields {
-		if f.Style == StyleGeneric {
-			imports = append(imports, field.Imports()...)
-		}
-
-		if constBuf.Len() == 0 {
-			constBuf.WriteByte('\n')
-			fmt.Fprintf(&constBuf, "// Constants generated from [%s] struct field\n", f.SourceStruct)
-			constBuf.WriteString("const (")
-		} else {
-			constBuf.WriteByte('\n')
-		}
-
-		switch f.Style {
-		case StyleAlias, StyleTyped:
-			fmt.Fprintf(&constBuf, "%s %s = %q", field.ConstName, parsedStruct.BaseName, field.ConstValue)
-		case StyleGeneric:
-			fmt.Fprintf(&constBuf, "%s %s[%s] = %q", field.ConstName, parsedStruct.BaseName, field.TypeName(), field.ConstValue)
-		default:
-			fmt.Fprintf(&constBuf, "%s = %q", field.ConstName, field.ConstValue)
-		}
-		fieldNames = append(fieldNames, field.ConstValue)
-		if i == len(fields)-1 {
-			closeConstants()
+			return nil, nil, err
 		}
 	}
 
-	if f.Iter {
-		fmt.Fprintf(&outBuf, "// All was generated from the [%s] struct. It returns an array of all [%s]'s associated constant values.\n", f.SourceStruct, baseName)
-
-		var sb strings.Builder
-		for _, n := range fieldNames {
-			sb.WriteByte('\n')
-			sb.WriteByte('"')
-			sb.WriteString(n)
-			sb.WriteByte('"')
-			sb.WriteByte(',')
-		}
-		fieldNamesStr := sb.String()
-		if f.Style == StyleGeneric {
-			fmt.Fprintf(&outBuf, "func (%s %s[T]) All() [%d]string { return [%d]string{%s} }\n", firstChar, baseName, len(fieldNames), len(fieldNames), fieldNamesStr)
-		} else {
-			fmt.Fprintf(&outBuf, "func (%s %s) All() [%d]string { return [%d]string{%s} }\n", firstChar, baseName, len(fieldNames), len(fieldNames), fieldNamesStr)
-		}
+	var outBuf bytes.Buffer
+	templateData := TemplateData{
+		Flags:  &f,
+		Struct: &parsedStruct,
+	}
+	err = templateWrapper.Template.Execute(&outBuf, templateData)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to execute template: %w", err)
 	}
 
-	if _, err = constBuf.WriteTo(&outBuf); err != nil {
-		log.Fatalf("failed to write full contents in memory: %v", err)
-	}
-
-	return outBuf.Bytes(), imports, nil
+	return outBuf.Bytes(), templateWrapper.Imports(), nil
 }
 
 func fieldIsEmbeddedStruct(f *types.Var) (*types.Struct, bool) {
@@ -752,11 +689,11 @@ func parseTypeNameSignature(structPackage string, u *types.Signature) *FieldType
 	})
 
 	return &FieldType{
-		TypeName: func() string {
+		typeName: func() string {
 			typeName, _ := typeNameAndImports()
 			return typeName
 		},
-		Imports: func() []string {
+		imports: func() []string {
 			_, imports := typeNameAndImports()
 			return imports
 		},

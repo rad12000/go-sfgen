@@ -26,10 +26,18 @@ type FuncSignature struct {
 	ReturnParameters []FuncParam
 }
 
+func (f *FieldType) TypeName() string {
+	return f.typeName()
+}
+
+func (f *FieldType) Imports() []string {
+	return f.imports()
+}
+
 type FieldType struct {
 	// The representation of the type as it should appear in the generated code. For example, "[]*MyStruct" or "map[string]int".
-	TypeName func() string
-	Imports  func() []string
+	typeName func() string
+	imports  func() []string
 
 	// Only relevant for map types
 	KeyElem *FieldType
@@ -74,51 +82,51 @@ func parseTypeNameInternal(structPackage string, t types.Type) *FieldType {
 	switch u := t.(type) {
 	case *types.Basic:
 		return &FieldType{
-			TypeName: u.Name,
+			typeName: u.Name,
 			IsBasic:  true,
-			Imports:  func() []string { return nil },
+			imports:  func() []string { return nil },
 		}
 	case *types.Slice:
 		parsedFieldType := parseTypeName(structPackage, u.Elem())
 		return &FieldType{
-			TypeName: sync.OnceValue(func() string {
+			typeName: sync.OnceValue(func() string {
 				return fmt.Sprintf("[]%s", parsedFieldType.TypeName())
 			}),
 			IsSlice: true,
 			Elem:    parsedFieldType,
-			Imports: func() []string { return parsedFieldType.Imports() },
+			imports: func() []string { return parsedFieldType.Imports() },
 		}
 	case *types.Array:
 		parsedFieldType := parseTypeName(structPackage, u.Elem())
 		return &FieldType{
-			TypeName: sync.OnceValue(func() string {
+			typeName: sync.OnceValue(func() string {
 				return fmt.Sprintf("[%d]%s", u.Len(), parsedFieldType.TypeName())
 			}),
 			IsArray: true,
 			Elem:    parsedFieldType,
-			Imports: func() []string { return parsedFieldType.Imports() },
+			imports: func() []string { return parsedFieldType.Imports() },
 		}
 	case *types.Chan:
 		parsedFieldType := parseTypeName(structPackage, u.Elem())
 		result := FieldType{
 			IsChannel: true,
 			Elem:      parsedFieldType,
-			Imports:   func() []string { return parsedFieldType.Imports() },
+			imports:   func() []string { return parsedFieldType.Imports() },
 		}
 
 		switch u.Dir() {
 		case types.SendOnly:
-			result.TypeName = sync.OnceValue(func() string {
+			result.typeName = sync.OnceValue(func() string {
 				return fmt.Sprintf("chan<- %s", parsedFieldType.TypeName())
 			})
 			result.ChanDirection = 0
 		case types.RecvOnly:
-			result.TypeName = sync.OnceValue(func() string {
+			result.typeName = sync.OnceValue(func() string {
 				return fmt.Sprintf("<-chan %s", parsedFieldType.TypeName())
 			})
 			result.ChanDirection = 1
 		case types.SendRecv:
-			result.TypeName = sync.OnceValue(func() string {
+			result.typeName = sync.OnceValue(func() string {
 				return fmt.Sprintf("chan %s", parsedFieldType.TypeName())
 			})
 			result.ChanDirection = 2
@@ -128,11 +136,11 @@ func parseTypeNameInternal(structPackage string, t types.Type) *FieldType {
 	case *types.Pointer:
 		parsedFieldType := parseTypeName(structPackage, u.Elem())
 		return &FieldType{
-			TypeName: sync.OnceValue(func() string {
+			typeName: sync.OnceValue(func() string {
 				return fmt.Sprintf("*%s", parsedFieldType.TypeName())
 			}),
 			IsPointer: true,
-			Imports:   func() []string { return parsedFieldType.Imports() },
+			imports:   func() []string { return parsedFieldType.Imports() },
 		}
 	case *types.Struct:
 		return parseStructType(structPackage, u)
@@ -140,13 +148,13 @@ func parseTypeNameInternal(structPackage string, t types.Type) *FieldType {
 		keyFieldType := parseTypeName(structPackage, u.Key())
 		valueFieldType := parseTypeName(structPackage, u.Elem())
 		return &FieldType{
-			TypeName: sync.OnceValue(func() string {
+			typeName: sync.OnceValue(func() string {
 				return fmt.Sprintf("map[%s]%s", keyFieldType.TypeName(), valueFieldType.TypeName())
 			}),
 			KeyElem: keyFieldType,
 			Elem:    valueFieldType,
 			IsMap:   true,
-			Imports: sync.OnceValue(func() []string {
+			imports: sync.OnceValue(func() []string {
 				return append(keyFieldType.Imports(), valueFieldType.Imports()...)
 			}),
 		}
@@ -161,8 +169,8 @@ func parseTypeNameInternal(structPackage string, t types.Type) *FieldType {
 			Exported: u.Obj().Exported(),
 			IsNamed:  true,
 			Elem:     parsedFieldType,
-			TypeName: func() string { return namedType },
-			Imports:  func() []string { return imports },
+			typeName: func() string { return namedType },
+			imports:  func() []string { return imports },
 		}
 	case *types.Named:
 		parsedFieldType := parseTypeName(structPackage, u.Underlying())
@@ -171,8 +179,8 @@ func parseTypeNameInternal(structPackage string, t types.Type) *FieldType {
 			Exported: u.Obj().Exported(),
 			IsNamed:  true,
 			Elem:     parsedFieldType,
-			TypeName: func() string { return namedType },
-			Imports:  func() []string { return imports },
+			typeName: func() string { return namedType },
+			imports:  func() []string { return imports },
 		}
 	default:
 		log.Fatalf("unhandled type %T: %s", t, t)
@@ -210,12 +218,12 @@ func parseStructType(structPackage string, u *types.Struct) *FieldType {
 		return fmt.Sprintf("struct {\n%s\n}", strings.Join(fieldDefinitions, "\n")), imps
 	})
 
-	result.TypeName = sync.OnceValue(func() string {
+	result.typeName = sync.OnceValue(func() string {
 		typeName, _ := loadImportsAndTypeNames()
 		return typeName
 	})
 
-	result.Imports = sync.OnceValue(func() []string {
+	result.imports = sync.OnceValue(func() []string {
 		_, imports := loadImportsAndTypeNames()
 		return imports
 	})

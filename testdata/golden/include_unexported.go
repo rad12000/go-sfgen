@@ -4,7 +4,7 @@
 
 package gen
 
-// Constants generated from [UnexportedStruct] struct field
+// Constants generated from the fields defined on the [.Struct.Name] struct.
 const (
 	fieldPublic   = "Public"
 	fieldhidden   = "hidden"

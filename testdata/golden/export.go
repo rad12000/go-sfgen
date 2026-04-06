@@ -4,7 +4,7 @@
 
 package gen
 
-// Constants generated from [ExportStruct] struct field
+// Constants generated from the fields defined on the [.Struct.Name] struct.
 const (
 	FieldUsername = "Username"
 	FieldPassword = "Password"

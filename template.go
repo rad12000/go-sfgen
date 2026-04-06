@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"strings"
 	"text/template"
 )
 
@@ -27,6 +28,7 @@ func newTemplateWrapper(parseTemplate func(*template.Template) (*template.Templa
 			log.Fatalf(format, args...)
 			return ""
 		},
+		"to_lower": strings.ToLower,
 		"require_imports": func(imps []string) string {
 			for _, imp := range imps {
 				imports[imp] = struct{}{}

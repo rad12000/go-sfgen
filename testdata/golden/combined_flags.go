@@ -4,25 +4,29 @@
 
 package gen
 
-// CombinedStructJSONField is a strong type generated from CombinedStruct. Its type is used for all of its related generated constants.
+// CombinedStructJSONField is a type, generated from CombinedStruct
+// Its type is used for all of its related generated constants.
 type CombinedStructJSONField string
 
-// String implements the [fmt.Stringer] interface
-func (c CombinedStructJSONField) String() string { return (string)(c) }
-
-// All was generated from the [CombinedStruct] struct. It returns an array of all [CombinedStructJSONField]'s associated constant values.
-func (c CombinedStructJSONField) All() [4]string {
-	return [4]string{
-		"id",
-		"full_name",
-		"is_active",
-		"score"}
+// String implements the [fmt.Stringer] interface.
+func (c CombinedStructJSONField) String() string {
+	return string(c)
 }
 
-// Constants generated from [CombinedStruct] struct field
+// Constants generated from the fields defined on the [.Struct.Name] struct.
 const (
 	CombinedStructJSONFieldID       CombinedStructJSONField = "id"
 	CombinedStructJSONFieldFullName CombinedStructJSONField = "full_name"
 	CombinedStructJSONFieldIsActive CombinedStructJSONField = "is_active"
 	CombinedStructJSONFieldScore    CombinedStructJSONField = "score"
 )
+
+// All was generated from [CombinedStruct]. It returns an array of [CombinedStructJSONField]'s constants.
+func (c CombinedStructJSONField) All() []string {
+	return []string{
+		"id",
+		"full_name",
+		"is_active",
+		"score",
+	}
+}

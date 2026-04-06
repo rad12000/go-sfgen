@@ -4,23 +4,27 @@
 
 package gen
 
-// field is a strong type generated from IterTypedStruct. Its type is used for all of its related generated constants.
+// field is a type, generated from IterTypedStruct
+// Its type is used for all of its related generated constants.
 type field string
 
-// String implements the [fmt.Stringer] interface
-func (f field) String() string { return (string)(f) }
-
-// All was generated from the [IterTypedStruct] struct. It returns an array of all [field]'s associated constant values.
-func (f field) All() [3]string {
-	return [3]string{
-		"One",
-		"Two",
-		"Three"}
+// String implements the [fmt.Stringer] interface.
+func (f field) String() string {
+	return string(f)
 }
 
-// Constants generated from [IterTypedStruct] struct field
+// Constants generated from the fields defined on the [.Struct.Name] struct.
 const (
 	fieldOne   field = "One"
 	fieldTwo   field = "Two"
 	fieldThree field = "Three"
 )
+
+// All was generated from [IterTypedStruct]. It returns an array of [field]'s constants.
+func (f field) All() []string {
+	return []string{
+		"One",
+		"Two",
+		"Three",
+	}
+}
