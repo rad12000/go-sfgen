@@ -1,4 +1,4 @@
-//go:generate go run ../../... -out-file ../golden/default.go --struct Simple --style generic --template /Users/chad.bekmezian/Documents/GitHub/personal/go-sfgen/templates/default.gotmpl
+//go:generate go run ../../... -out-file ../golden/default.go --struct Simple --style generic
 package gen
 
 import "time"
