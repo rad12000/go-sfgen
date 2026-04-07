@@ -1,5 +1,51 @@
 package template
 
+import (
+	"github.com/fatih/structtag"
+)
+
+func NewStructTags(tag string) *StructTags {
+	tags, err := structtag.Parse(tag)
+	if err != nil {
+		return nil
+	}
+
+	return &StructTags{tags: tags}
+}
+
+type StructTags struct {
+	tags *structtag.Tags
+}
+
+func (s *StructTags) Get(name string) *StructTag {
+	if s == nil {
+		return nil
+	}
+
+	tag, err := s.tags.Get(name)
+	if err != nil {
+		return nil
+	}
+
+	return &StructTag{tag: tag}
+}
+
+type StructTag struct {
+	tag *structtag.Tag
+}
+
+func (s *StructTag) Name() string {
+	return s.tag.Name
+}
+
+func (s *StructTag) Options() []string {
+	return s.tag.Options
+}
+
+func (s *StructTag) HasOption(opt string) bool {
+	return s.tag.HasOption(opt)
+}
+
 type Data struct {
 	Options *GenOptions
 	Struct  *ParsedStruct
@@ -26,7 +72,7 @@ type GenOptions struct {
 }
 
 type ParsedStructField struct {
-	Tags      []string
+	Tags      *StructTags
 	FieldName string
 	Embedded  bool
 	Exported  bool

@@ -17,7 +17,7 @@ func parseTopLevelField(structPackage string, field *types.Var, tag, baseName st
 		return template.ParsedConstField{}, fmt.Errorf("failed to parse struct tags for field %s: %w", field.Name(), err)
 	}
 
-	structField := parseStructField(structPackage, field)
+	structField := parseStructField(structPackage, field, tag)
 	if sfgenTag, ok := sfgenTagName(f.Tag, tags); ok {
 		return template.ParsedConstField{
 			ConstName:         baseName + field.Name(),
@@ -52,9 +52,10 @@ func parseTopLevelField(structPackage string, field *types.Var, tag, baseName st
 	}, nil
 }
 
-func parseStructField(structPackage string, field *types.Var) template.ParsedStructField {
+func parseStructField(structPackage string, field *types.Var, tag string) template.ParsedStructField {
 	fieldType := parseTypeName(structPackage, field.Type())
 	return template.ParsedStructField{
+		Tags:       template.NewStructTags(tag),
 		Embedded:   field.Embedded(),
 		Exported:   field.Exported(),
 		FieldName:  field.Name(),
@@ -158,8 +159,8 @@ func sfgenTagName(targetTagName string, tags *structtag.Tags) (string, bool) {
 	}
 
 	// From here on we know that tagParts length is 2
-	tagSpecificValues := strings.Split(tagParts[1], " ")
-	for _, tagSpecificVal := range tagSpecificValues {
+	tagSpecificValues := strings.SplitSeq(tagParts[1], " ")
+	for tagSpecificVal := range tagSpecificValues {
 		tagSpecificVal = strings.TrimSpace(tagSpecificVal)
 		if tagSpecificVal == "" {
 			continue

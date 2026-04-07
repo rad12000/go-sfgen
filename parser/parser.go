@@ -176,7 +176,7 @@ func parseStructType(structPackage string, u *types.Struct) *template.ParsedType
 
 	for i := range u.NumFields() {
 		field := u.Field(i)
-		structField := parseStructField(structPackage, field)
+		structField := parseStructField(structPackage, field, u.Tag(i))
 		fields = append(fields, structField)
 	}
 
