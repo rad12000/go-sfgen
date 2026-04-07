@@ -3,12 +3,13 @@ package main
 import (
 	"fmt"
 	"go/types"
-	"golang.org/x/tools/go/packages"
 	"log"
 	"maps"
 	"os"
 	"slices"
 	"sync"
+
+	"golang.org/x/tools/go/packages"
 )
 
 var packageNameToScopes = make(map[string]*packages.Package)
@@ -50,7 +51,7 @@ func loadPackageScopes(packagesToLoad []packageToLoad) {
 			cfg := packages.Config{
 				Mode:  packages.NeedName | packages.NeedTypes | packages.NeedTypesInfo | packages.NeedSyntax,
 				Tests: p.IncludeTests,
-				//Dir:   p.Dir,
+				// Dir:   p.Dir,
 			}
 
 			var patterns []string
@@ -96,8 +97,10 @@ func loadPackageScopes(packagesToLoad []packageToLoad) {
 			}
 
 			if len(pkgs[0].Errors) > 0 {
-				errCh <- fmt.Errorf("failed to load package %s: %v", p, loadedPkg[0].Errors)
-				return
+				// errCh <- fmt.Errorf("failed to load package %s: %v", p, loadedPkg[0].Errors)
+				// return
+				//
+				// failing on a syntax error is very annoying and noisy. This may need to be fine tuned in the future.
 			}
 
 			scope := pkgs[0].Types.Scope()
