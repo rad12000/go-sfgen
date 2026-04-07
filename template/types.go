@@ -25,17 +25,18 @@ type GenOptions struct {
 	Iter                    bool
 }
 
-type StructField struct {
+type ParsedStructField struct {
+	Tags      []string
 	FieldName string
 	Embedded  bool
 	Exported  bool
-	*FieldType
+	*ParsedType
 }
 
 type FuncParam struct {
 	// Name is the name of the parameter. It can be empty for unnamed parameters.
 	Name string
-	Type *FieldType
+	Type *ParsedType
 }
 
 type FuncSignature struct {
@@ -43,39 +44,39 @@ type FuncSignature struct {
 	ReturnParameters []FuncParam
 }
 
-func (f *FieldType) TypeName() string {
+func (f *ParsedType) TypeName() string {
 	return f.typeName()
 }
 
-func (f *FieldType) Imports() []string {
+func (f *ParsedType) Imports() []string {
 	return f.imports()
 }
 
-type NewFieldTypeArgs struct {
+type ParsedTypeArgs struct {
 	TypeName func() string
 	Imports  func() []string
-	FieldType
+	ParsedType
 }
 
-func NewFieldType(args NewFieldTypeArgs) *FieldType {
+func NewParsedType(args ParsedTypeArgs) *ParsedType {
 	args.typeName = args.TypeName
 	args.imports = args.Imports
-	return &args.FieldType
+	return &args.ParsedType
 }
 
-type FieldType struct {
+type ParsedType struct {
 	// The representation of the type as it should appear in the generated code. For example, "[]*MyStruct" or "map[string]int".
 	typeName func() string
 	imports  func() []string
 
 	// Only relevant for map types
-	KeyElem *FieldType
+	KeyElem *ParsedType
 
 	// Only relevant for slice, array, chan, pointer, map and named types. For maps, this is the value type.
-	Elem *FieldType
+	Elem *ParsedType
 
 	// Only relevant for struct types.
-	Fields        []StructField
+	Fields        []ParsedStructField
 	FuncSignature FuncSignature
 
 	// Whether the named type is exported.
@@ -96,11 +97,11 @@ type FieldType struct {
 type ParsedStruct struct {
 	Name     string
 	BaseName string
-	Fields   []ParsedField
+	Fields   []ParsedConstField
 }
 
-type ParsedField struct {
-	StructField
+type ParsedConstField struct {
+	ParsedStructField
 
 	// ConstName is the name of the constant to be generated for this field.
 	// For example, if the source struct is "Config", the field is "Timeout", and the prefix is "Field", this will be "ConfigFieldTimeout" or "FieldTimeout" depending on whether the --include-struct-name flag is used.

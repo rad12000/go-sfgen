@@ -10,39 +10,39 @@ import (
 	"github.com/rad12000/go-sfgen/template"
 )
 
-var fieldTypeMemo = make(map[string]*template.FieldType)
+var fieldTypeMemo = make(map[string]*template.ParsedType)
 
-func parseTypeName(structPackage string, t types.Type) *template.FieldType {
+func parseTypeName(structPackage string, t types.Type) *template.ParsedType {
 	existing, ok := fieldTypeMemo[t.String()]
 	if ok {
 		return existing
 	}
 
-	result := new(template.FieldType)
+	result := new(template.ParsedType)
 	fieldTypeMemo[t.String()] = result
 	*result = *parseTypeNameInternal(structPackage, t)
 	return result
 }
 
-func parseTypeNameInternal(structPackage string, t types.Type) *template.FieldType {
+func parseTypeNameInternal(structPackage string, t types.Type) *template.ParsedType {
 	switch u := t.(type) {
 	case *types.Basic:
-		return template.NewFieldType(
-			template.NewFieldTypeArgs{
-				TypeName:  u.Name,
-				Imports:   func() []string { return nil },
-				FieldType: template.FieldType{IsBasic: true},
+		return template.NewParsedType(
+			template.ParsedTypeArgs{
+				TypeName:   u.Name,
+				Imports:    func() []string { return nil },
+				ParsedType: template.ParsedType{IsBasic: true},
 			},
 		)
 	case *types.Slice:
 		parsedFieldType := parseTypeName(structPackage, u.Elem())
-		return template.NewFieldType(
-			template.NewFieldTypeArgs{
+		return template.NewParsedType(
+			template.ParsedTypeArgs{
 				TypeName: sync.OnceValue(func() string {
 					return fmt.Sprintf("[]%s", parsedFieldType.TypeName())
 				}),
 				Imports: func() []string { return parsedFieldType.Imports() },
-				FieldType: template.FieldType{
+				ParsedType: template.ParsedType{
 					IsSlice: true,
 					Elem:    parsedFieldType,
 				},
@@ -50,13 +50,13 @@ func parseTypeNameInternal(structPackage string, t types.Type) *template.FieldTy
 		)
 	case *types.Array:
 		parsedFieldType := parseTypeName(structPackage, u.Elem())
-		return template.NewFieldType(
-			template.NewFieldTypeArgs{
+		return template.NewParsedType(
+			template.ParsedTypeArgs{
 				TypeName: sync.OnceValue(func() string {
 					return fmt.Sprintf("[%d]%s", u.Len(), parsedFieldType.TypeName())
 				}),
 				Imports: func() []string { return parsedFieldType.Imports() },
-				FieldType: template.FieldType{
+				ParsedType: template.ParsedType{
 					IsArray: true,
 					Elem:    parsedFieldType,
 				},
@@ -66,7 +66,7 @@ func parseTypeNameInternal(structPackage string, t types.Type) *template.FieldTy
 		parsedFieldType := parseTypeName(structPackage, u.Elem())
 
 		var (
-			typeNameFn   func() string
+			typeNameFn    func() string
 			chanDirection int
 		)
 
@@ -88,11 +88,11 @@ func parseTypeNameInternal(structPackage string, t types.Type) *template.FieldTy
 			chanDirection = 2
 		}
 
-		return template.NewFieldType(
-			template.NewFieldTypeArgs{
+		return template.NewParsedType(
+			template.ParsedTypeArgs{
 				TypeName: typeNameFn,
 				Imports:  func() []string { return parsedFieldType.Imports() },
-				FieldType: template.FieldType{
+				ParsedType: template.ParsedType{
 					IsChannel:     true,
 					Elem:          parsedFieldType,
 					ChanDirection: chanDirection,
@@ -101,13 +101,13 @@ func parseTypeNameInternal(structPackage string, t types.Type) *template.FieldTy
 		)
 	case *types.Pointer:
 		parsedFieldType := parseTypeName(structPackage, u.Elem())
-		return template.NewFieldType(
-			template.NewFieldTypeArgs{
+		return template.NewParsedType(
+			template.ParsedTypeArgs{
 				TypeName: sync.OnceValue(func() string {
 					return fmt.Sprintf("*%s", parsedFieldType.TypeName())
 				}),
 				Imports: func() []string { return parsedFieldType.Imports() },
-				FieldType: template.FieldType{
+				ParsedType: template.ParsedType{
 					IsPointer: true,
 				},
 			},
@@ -117,15 +117,15 @@ func parseTypeNameInternal(structPackage string, t types.Type) *template.FieldTy
 	case *types.Map:
 		keyFieldType := parseTypeName(structPackage, u.Key())
 		valueFieldType := parseTypeName(structPackage, u.Elem())
-		return template.NewFieldType(
-			template.NewFieldTypeArgs{
+		return template.NewParsedType(
+			template.ParsedTypeArgs{
 				TypeName: sync.OnceValue(func() string {
 					return fmt.Sprintf("map[%s]%s", keyFieldType.TypeName(), valueFieldType.TypeName())
 				}),
 				Imports: sync.OnceValue(func() []string {
 					return append(keyFieldType.Imports(), valueFieldType.Imports()...)
 				}),
-				FieldType: template.FieldType{
+				ParsedType: template.ParsedType{
 					KeyElem: keyFieldType,
 					Elem:    valueFieldType,
 					IsMap:   true,
@@ -139,11 +139,11 @@ func parseTypeNameInternal(structPackage string, t types.Type) *template.FieldTy
 	case *types.Alias:
 		parsedFieldType := parseTypeName(structPackage, u.Underlying())
 		namedType, imports := parseNamedType(structPackage, u)
-		return template.NewFieldType(
-			template.NewFieldTypeArgs{
+		return template.NewParsedType(
+			template.ParsedTypeArgs{
 				TypeName: func() string { return namedType },
 				Imports:  func() []string { return imports },
-				FieldType: template.FieldType{
+				ParsedType: template.ParsedType{
 					Exported: u.Obj().Exported(),
 					IsNamed:  true,
 					Elem:     parsedFieldType,
@@ -153,11 +153,11 @@ func parseTypeNameInternal(structPackage string, t types.Type) *template.FieldTy
 	case *types.Named:
 		parsedFieldType := parseTypeName(structPackage, u.Underlying())
 		namedType, imports := parseNamedType(structPackage, u)
-		return template.NewFieldType(
-			template.NewFieldTypeArgs{
+		return template.NewParsedType(
+			template.ParsedTypeArgs{
 				TypeName: func() string { return namedType },
 				Imports:  func() []string { return imports },
-				FieldType: template.FieldType{
+				ParsedType: template.ParsedType{
 					Exported: u.Obj().Exported(),
 					IsNamed:  true,
 					Elem:     parsedFieldType,
@@ -171,8 +171,8 @@ func parseTypeNameInternal(structPackage string, t types.Type) *template.FieldTy
 	return nil
 }
 
-func parseStructType(structPackage string, u *types.Struct) *template.FieldType {
-	fields := make([]template.StructField, 0, u.NumFields())
+func parseStructType(structPackage string, u *types.Struct) *template.ParsedType {
+	fields := make([]template.ParsedStructField, 0, u.NumFields())
 
 	for i := range u.NumFields() {
 		field := u.Field(i)
@@ -184,7 +184,7 @@ func parseStructType(structPackage string, u *types.Struct) *template.FieldType 
 		importSet := make(map[string]struct{})
 		fieldDefinitions := make([]string, 0, u.NumFields())
 		for _, structField := range fields {
-			for _, imp := range structField.FieldType.Imports() {
+			for _, imp := range structField.ParsedType.Imports() {
 				importSet[imp] = struct{}{}
 			}
 			fieldDefinitions = append(fieldDefinitions, fmt.Sprintf("%s %s", structField.FieldName, structField.TypeName()))
@@ -197,8 +197,8 @@ func parseStructType(structPackage string, u *types.Struct) *template.FieldType 
 		return fmt.Sprintf("struct {\n%s\n}", strings.Join(fieldDefinitions, "\n")), imps
 	})
 
-	return template.NewFieldType(
-		template.NewFieldTypeArgs{
+	return template.NewParsedType(
+		template.ParsedTypeArgs{
 			TypeName: sync.OnceValue(func() string {
 				typeName, _ := loadImportsAndTypeNames()
 				return typeName
@@ -207,7 +207,7 @@ func parseStructType(structPackage string, u *types.Struct) *template.FieldType 
 				_, imports := loadImportsAndTypeNames()
 				return imports
 			}),
-			FieldType: template.FieldType{
+			ParsedType: template.ParsedType{
 				Fields:   fields,
 				IsStruct: true,
 			},

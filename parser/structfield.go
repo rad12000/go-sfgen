@@ -11,18 +11,18 @@ import (
 	"github.com/rad12000/go-sfgen/template"
 )
 
-func parseTopLevelField(structPackage string, field *types.Var, tag, baseName string, f template.GenOptions) (template.ParsedField, error) {
+func parseTopLevelField(structPackage string, field *types.Var, tag, baseName string, f template.GenOptions) (template.ParsedConstField, error) {
 	tags, err := structtag.Parse(tag)
 	if err != nil {
-		return template.ParsedField{}, fmt.Errorf("failed to parse struct tags for field %s: %w", field.Name(), err)
+		return template.ParsedConstField{}, fmt.Errorf("failed to parse struct tags for field %s: %w", field.Name(), err)
 	}
 
 	structField := parseStructField(structPackage, field)
 	if sfgenTag, ok := sfgenTagName(f.Tag, tags); ok {
-		return template.ParsedField{
-			ConstName:   baseName + field.Name(),
-			ConstValue:  sfgenTag,
-			StructField: structField,
+		return template.ParsedConstField{
+			ConstName:         baseName + field.Name(),
+			ConstValue:        sfgenTag,
+			ParsedStructField: structField,
 		}, nil
 	}
 
@@ -32,7 +32,7 @@ func parseTopLevelField(structPackage string, field *types.Var, tag, baseName st
 		if err == nil && len(nameFromTag.Value()) > 0 && f.TagNameRegex != "" {
 			re, err := regexp.Compile(f.TagNameRegex)
 			if err != nil {
-				return template.ParsedField{}, fmt.Errorf("failed to compile regex expression %q: %w", f.TagNameRegex, err)
+				return template.ParsedConstField{}, fmt.Errorf("failed to compile regex expression %q: %w", f.TagNameRegex, err)
 			}
 
 			if matches := re.FindStringSubmatch(nameFromTag.Value()); len(matches) >= 2 {
@@ -45,20 +45,20 @@ func parseTopLevelField(structPackage string, field *types.Var, tag, baseName st
 		}
 	}
 
-	return template.ParsedField{
-		ConstName:   baseName + field.Name(),
-		ConstValue:  tagNameValue,
-		StructField: structField,
+	return template.ParsedConstField{
+		ConstName:         baseName + field.Name(),
+		ConstValue:        tagNameValue,
+		ParsedStructField: structField,
 	}, nil
 }
 
-func parseStructField(structPackage string, field *types.Var) template.StructField {
+func parseStructField(structPackage string, field *types.Var) template.ParsedStructField {
 	fieldType := parseTypeName(structPackage, field.Type())
-	return template.StructField{
-		Embedded:  field.Embedded(),
-		Exported:  field.Exported(),
-		FieldName: field.Name(),
-		FieldType: fieldType,
+	return template.ParsedStructField{
+		Embedded:   field.Embedded(),
+		Exported:   field.Exported(),
+		FieldName:  field.Name(),
+		ParsedType: fieldType,
 	}
 }
 
@@ -73,8 +73,8 @@ func ParseStructFields(f template.GenOptions, structPackage, baseName string, s 
 
 	var (
 		topLevelFields = make(map[string]struct{})
-		fields         []template.ParsedField
-		embeddedFields []template.ParsedField
+		fields         []template.ParsedConstField
+		embeddedFields []template.ParsedConstField
 	)
 	for i := 0; i < s.NumFields(); i++ {
 		field := s.Field(i)

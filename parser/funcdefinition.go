@@ -8,7 +8,7 @@ import (
 	"github.com/rad12000/go-sfgen/template"
 )
 
-func parseTypeNameSignature(structPackage string, u *types.Signature) *template.FieldType {
+func parseTypeNameSignature(structPackage string, u *types.Signature) *template.ParsedType {
 	result := template.FuncSignature{
 		Parameters:       make([]template.FuncParam, 0, u.Params().Len()),
 		ReturnParameters: make([]template.FuncParam, 0, u.Results().Len()),
@@ -70,8 +70,8 @@ func parseTypeNameSignature(structPackage string, u *types.Signature) *template.
 		return sb.String(), imports
 	})
 
-	return template.NewFieldType(
-		template.NewFieldTypeArgs{
+	return template.NewParsedType(
+		template.ParsedTypeArgs{
 			TypeName: func() string {
 				typeName, _ := typeNameAndImports()
 				return typeName
@@ -80,7 +80,7 @@ func parseTypeNameSignature(structPackage string, u *types.Signature) *template.
 				_, imports := typeNameAndImports()
 				return imports
 			},
-			FieldType: template.FieldType{
+			ParsedType: template.ParsedType{
 				IsFuncSignature: true,
 				FuncSignature:   result,
 			},
