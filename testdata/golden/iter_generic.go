@@ -9,7 +9,7 @@ package gen
 type field[T any] string
 
 // String implements the [fmt.Stringer] interface.
-func (f field) String() string {
+func (f field[T]) String() string {
 	return string(f)
 }
 
@@ -21,7 +21,7 @@ const (
 )
 
 // All was generated from [IterGenericStruct]. It returns an array of [field]'s constants.
-func (f field) All() []string {
+func (f field[T]) All() []string {
 	return []string{
 		"Name",
 		"Count",

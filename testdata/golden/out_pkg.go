@@ -9,7 +9,7 @@ package custompkg
 type field[T any] string
 
 // String implements the [fmt.Stringer] interface.
-func (f field) String() string {
+func (f field[T]) String() string {
 	return string(f)
 }
 

@@ -5,16 +5,18 @@
 type {{.Struct.BaseName}} = string
 {{- else if eq .Options.Style "typed"}}
 type {{.Struct.BaseName}} string
-{{block "Stringer" .Struct}}
-{{- $firstChar := to_lower (slice .BaseName 0 1) -}}
+{{block "Stringer" .}}
+{{$struct := .Struct}}
+{{$options := .Options}}
+{{- $firstChar := to_lower (slice $struct.BaseName 0 1) -}}
 // String implements the [fmt.Stringer] interface.
-func ({{$firstChar}} {{.BaseName}}) String() string {
+func ({{$firstChar}} {{$struct.BaseName}}{{if eq $options.Style "generic"}}[T]{{end}}) String() string {
   return string({{$firstChar}})
 }
 {{end}}
 {{- else if eq .Options.Style "generic"}}
 type {{.Struct.BaseName}}[T any] string
-{{template "Stringer" .Struct}}
+{{template "Stringer" .}}
 {{else}}
 {{fatalf "unsupported style %q" .Struct.Style}}
 {{end}}
@@ -48,7 +50,7 @@ const (
 {{if and (len .Options.Style) .Options.Iter}}
 {{- $firstChar := to_lower (slice $struct.BaseName 0 1) -}}
 // All was generated from [{{$struct.Name}}]. It returns an array of [{{$struct.BaseName}}]'s constants.
-func ({{$firstChar}} {{$struct.BaseName}}) All() []string {
+func ({{$firstChar}} {{$struct.BaseName}}{{if eq .Options.Style "generic"}}[T]{{end}}) All() []string {
   return []string{
   {{range .Struct.Fields -}}
     "{{.ConstValue}}",
