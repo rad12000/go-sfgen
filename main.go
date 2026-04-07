@@ -62,7 +62,6 @@ import (
 	"go/types"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"unicode"
@@ -215,22 +214,14 @@ func generateCodeForFileGroup(flagOptions []FlagOptions) {
 	_ = file.Truncate(0)
 
 	unformatted := buf.Bytes()
+	out, err := format.Source(unformatted)
 	if err != nil {
-		_, _ = os.Stdout.Write(unformatted)
+		_, _ = file.Write(unformatted)
 		panic(fmt.Sprintf("failed to format output '%v'", err))
 	}
 
-	if _, err = file.Write(unformatted); err != nil {
+	if _, err = file.Write(out); err != nil {
 		log.Fatalf("failed to write to out file %s: %v", outFile, err)
-	}
-	_ = file.Close()
-
-	cmd := exec.Command("go", "fmt", file.Name())
-	cmd.Stderr = os.Stderr
-	cmd.Stdout = os.Stdout
-	err = cmd.Run()
-	if err != nil {
-		log.Fatalf("failed to format generated file with go fmt: %v", err)
 	}
 }
 
