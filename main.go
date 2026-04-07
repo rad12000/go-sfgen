@@ -48,7 +48,7 @@ Flags are:
 	  	The first capture group will be used as the value for the generated constant.
 	  	If the regex does not match the tag contents, the struct field's' name will be used instead.
 	-template string
-	  	The path to a Go template file to use for generating the code from struct fields. The template is provided an instance of [TemplateData] as its argument.
+	  	The path to a Go template file to use for generating the code from struct fields. The template is provided an instance of [template.Data] as its argument.
 	-tests
 	  	If true, source code in tests will be included. This flag will often need to be used along with the --package flag.
 */
