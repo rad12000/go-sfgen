@@ -4,9 +4,11 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/google/shlex"
 	"os"
 	"strings"
+
+	"github.com/google/shlex"
+	"github.com/rad12000/go-sfgen/template"
 )
 
 const (
@@ -16,23 +18,8 @@ const (
 )
 
 type FlagOptions struct {
-	DryRun                  bool
-	OutputFile              string
-	OutputDir               string
-	OutputPackage           string
-	SourceStruct            string
-	SourceStructDir         string
-	PackageName             string
-	IncludeTests            bool
-	Style                   string
-	Tag                     string
-	TagNameRegex            string
-	Prefix                  *string
-	Export                  bool
-	UseStructName           bool
-	IncludeUnexportedFields bool
-	Iter                    bool
-	packagesToLoad          packageToLoad
+	template.GenOptions
+	packagesToLoad packageToLoad
 }
 
 func (f *FlagOptions) ParseString(args string) error {
@@ -83,6 +70,7 @@ If the regex does not match the tag contents, the struct field's' name will be u
 		return nil
 	})
 	flagSet.StringVar(&f.Style, "style", "", `Specifies the style of constants desired. Valid options are: alias, typed, generic`)
+	flagSet.StringVar(&f.Template, "template", "", `The path to a Go template file to use for generating the code from struct fields. The template is provided an instance of [TemplateData] as its argument.`)
 	flagSet.BoolVar(&f.Export, "export", false, "If true, the generated constants will be exported")
 	flagSet.BoolVar(&f.UseStructName, "include-struct-name", false, "If true, the generated constants will be prefixed with the source struct name")
 	flagSet.BoolVar(&f.IncludeUnexportedFields, "include-unexported-fields", false, "If true, the generated constants will include fields that are not exported on the struct")

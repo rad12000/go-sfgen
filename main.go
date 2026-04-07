@@ -1,4 +1,5 @@
 /*
+“
 go-sfgen generates constants from struct fields.
 
 Below is a list of flags that can be used with the //go:generate directive.
@@ -10,44 +11,46 @@ Usage:
 Flags are:
 
 	-dry-run
-		If true, no output file will be written to, but instead results will be written to stdout
+	  	If true, no output file will be written to, but instead results will be written to stdout
 	-export
-		If true, the generated constants will be exported
+	  	If true, the generated constants will be exported
 	-gen value
-		accepts all the top level flags in a string, allowing multiple generate commands to be specified
+	  	accepts all the top level flags in a string, allowing multiple generate commands to be specified
 	-include-struct-name
-		If true, the generated constants will be prefixed with the source struct name
+	  	If true, the generated constants will be prefixed with the source struct name
 	-include-unexported-fields
-		If true, the generated constants will include fields that are not exported on the struct
+	  	If true, the generated constants will include fields that are not exported on the struct
 	-iter
-		if true, an All() method will be generated for the type, which returns an array of all the values generated
+	  	if true, an All() method will be generated for the type, which returns an array of all the values generated
 	-out-dir string
-		The directory in which to place the generated file. Defaults to the current directory (default ".")
+	  	The directory in which to place the generated file. Defaults to the current directory (default ".")
 	-out-file string
-		The file to write generated output to. Defaults to [--struct]_[prefix]_generated.go
+	  	The file to write generated output to. Defaults to [--struct]_[prefix]_generated.go
 	-out-pkg string
-		The package the generated code should belong to. Defaults to the package containing the go:generate directive
+	  	The package the generated code should belong to. Defaults to the package containing the go:generate directive
 	-package string
-		The name of the package in which the source struct resides.
+	  	The name of the package in which the source struct resides.
 	-prefix value
-		A value to prepend to the generated const names. Defaults to [tag]Field
+	  	A value to prepend to the generated const names. Defaults to [tag]Field
 	-src-dir string
-		The directory containing the --struct. Defaults to the current directory (default ".")
+	  	The directory containing the --struct. Defaults to the current directory (default ".")
 	-struct string
-		The struct to use as the source for code generation. REQUIRED
+	  	The struct to use as the source for code generation. REQUIRED
 	-style string
-		Specifies the style of constants desired. Valid options are: alias, typed, generic
+	  	Specifies the style of constants desired. Valid options are: alias, typed, generic
 	-tag string
-		If provided, the provided tag will be parsed for each field on the --struct.
-		If the tag is missing, the struct field's name is used.
-		Otherwise, the first attribute in the tag is used as the name'
+	  	If provided, the provided tag will be parsed for each field on the --struct.
+	  	If the tag is missing, the struct field's name is used.
+	  	Otherwise, the first attribute in the tag is used as the name'
 	-tag-regex string
-		This flag requires the --tag flag be provided as well.
-		The provided regex will be tested on the specified tag contents for each field.
-		The first capture group will be used as the value for the generated constant.
-		If the regex does not match the tag contents, the struct field's' name will be used instead.
+	  	This flag requires the --tag flag be provided as well.
+	  	The provided regex will be tested on the specified tag contents for each field.
+	  	The first capture group will be used as the value for the generated constant.
+	  	If the regex does not match the tag contents, the struct field's' name will be used instead.
+	-template string
+	  	The path to a Go template file to use for generating the code from struct fields. The template is provided an instance of [TemplateData] as its argument.
 	-tests
-		If true, source code in tests will be included. This flag will often need to be used along with the --package flag.
+	  	If true, source code in tests will be included. This flag will often need to be used along with the --package flag.
 */
 package main
 
@@ -55,16 +58,18 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
-	"github.com/fatih/structtag"
 	"go/format"
 	"go/types"
 	"log"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
-	"sync"
 	"unicode"
+
+	_ "embed"
+
+	"github.com/rad12000/go-sfgen/parser"
+	"github.com/rad12000/go-sfgen/template"
 )
 
 var flagOptions []FlagOptions
@@ -117,16 +122,16 @@ func main() {
 
 	loadPackageScopes(packagesToLoad)
 
-	var wg sync.WaitGroup
+	// var wg sync.WaitGroup
 	for _, group := range outputFileGroups {
-		wg.Add(1)
-		go func(group []FlagOptions) {
-			defer wg.Done()
-			generateCodeForFileGroup(group)
-		}(group)
+		// wg.Add(1)
+		// go func(group []FlagOptions) {
+		// 	defer wg.Done()
+		generateCodeForFileGroup(group)
+		// }(group)
 	}
 
-	wg.Wait()
+	// wg.Wait()
 }
 
 func generateCodeForFileGroup(flagOptions []FlagOptions) {
@@ -153,9 +158,9 @@ func generateCodeForFileGroup(flagOptions []FlagOptions) {
 
 	buf := new(bytes.Buffer)
 	buf.WriteString("// Code generated by github.com/rad12000/go-sfgen; DO NOT EDIT.\n\n")
-	buf.WriteString(fmt.Sprintf("// Source %s.%s:%s\n\n",
-		os.Getenv("GOPACKAGE"), os.Getenv("GOFILE"), os.Getenv("GOLINE")))
-	buf.WriteString(fmt.Sprintf("package %s\n", outPkg))
+	fmt.Fprintf(buf, "// Source %s.%s:%s\n\n",
+		os.Getenv("GOPACKAGE"), os.Getenv("GOFILE"), os.Getenv("GOLINE"))
+	fmt.Fprintf(buf, "package %s\n", outPkg)
 	seenImport := make(map[string]struct{})
 	hasWrittenImportHeader := false
 	for _, imports := range imports {
@@ -176,7 +181,6 @@ func generateCodeForFileGroup(flagOptions []FlagOptions) {
 			buf.WriteByte('"')
 			buf.WriteByte('\n')
 		}
-
 	}
 	if hasWrittenImportHeader {
 		buf.WriteString(")\n")
@@ -193,14 +197,14 @@ func generateCodeForFileGroup(flagOptions []FlagOptions) {
 	}
 
 	if _, err = os.Stat(outFile); err != nil {
-		err = os.MkdirAll(outDir, 0755)
+		err = os.MkdirAll(outDir, 0o755)
 	}
 
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
 
-	file, err := os.OpenFile(outFile, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(outFile, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
 	if err != nil {
 		log.Fatalf("failed to open file at %s: %v", outFile, err)
 	}
@@ -209,8 +213,10 @@ func generateCodeForFileGroup(flagOptions []FlagOptions) {
 	}(file)
 	_ = file.Truncate(0)
 
-	out, err := format.Source(buf.Bytes())
+	unformatted := buf.Bytes()
+	out, err := format.Source(unformatted)
 	if err != nil {
+		_, _ = os.Stdout.Write(unformatted)
 		panic(fmt.Sprintf("failed to format output '%v'", err))
 	}
 
@@ -277,266 +283,34 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	structPackage := structType.String()[:strings.LastIndexByte(structType.String(), '.')]
-
-	var (
-		outBuf         bytes.Buffer
-		constBuf       bytes.Buffer
-		closeConstants = func() {
-			constBuf.WriteByte(')')
-		}
-	)
 
 	baseName := calculateBaseName(f)
-	firstChar := strings.ToLower(baseName[:1])
-
-	if f.Style != "" {
-		outBuf.WriteString(fmt.Sprintf("// %s is a strong type generated from %s. Its type is used for all of its related generated constants.\n", baseName, f.SourceStruct))
-	}
-
-	switch f.Style {
-	case StyleAlias:
-		outBuf.WriteString(fmt.Sprintf("type %s = string\n", baseName))
-	case StyleTyped:
-		outBuf.WriteString(fmt.Sprintf("type %s string\n", baseName))
-		outBuf.WriteString("// String implements the [fmt.Stringer] interface\n")
-		outBuf.WriteString(fmt.Sprintf("func (%s %s) String() string { return (string)(%s) }\n", firstChar, baseName, firstChar))
-	case StyleGeneric:
-		outBuf.WriteString(fmt.Sprintf("type %s[T any] string\n", baseName))
-		outBuf.WriteString("// String implements the [fmt.Stringer] interface\n")
-		outBuf.WriteString(fmt.Sprintf("func (%s %s[T]) String() string { return (string)(%s) }\n", firstChar, baseName, firstChar))
-	}
-
-	fields, err := parseStructFields(f, structPackage, baseName, s)
+	structPackage := structType.String()[:strings.LastIndexByte(structType.String(), '.')]
+	parsedStruct, err := parser.ParseStructFields(f.GenOptions, structPackage, baseName, s)
 	if err != nil {
 		return nil, nil, err
 	}
+	parsedStruct.Name = structType.Obj().Name()
+	parsedStruct.BaseName = baseName
 
-	if len(fields) == 0 {
-		closeConstants()
+	var templateWrapper *template.Template
+	if f.Template != "" {
+		templateWrapper = template.New(template.FromFile(f.Template))
+	} else {
+		templateWrapper = template.New(template.Default())
 	}
 
-	var fieldNames []string
-	for i, field := range fields {
-		if f.Style == StyleGeneric {
-			imports = append(imports, field.requiredImports...)
-		}
-
-		if constBuf.Len() == 0 {
-			constBuf.WriteByte('\n')
-			constBuf.WriteString(fmt.Sprintf("// Constants generated from [%s] struct field\n", f.SourceStruct))
-			constBuf.WriteString("const (")
-		} else {
-			constBuf.WriteByte('\n')
-		}
-
-		switch f.Style {
-		case StyleAlias, StyleTyped:
-			constBuf.WriteString(fmt.Sprintf("%s %s = %q", field.constName, field.baseName, field.constValue))
-		case StyleGeneric:
-			constBuf.WriteString(fmt.Sprintf("%s %s[%s] = %q", field.constName, field.baseName, field.fieldType, field.constValue))
-		default:
-			constBuf.WriteString(fmt.Sprintf("%s = %q", field.constName, field.constValue))
-		}
-		fieldNames = append(fieldNames, field.constValue)
-		if i == len(fields)-1 {
-			closeConstants()
-		}
+	var outBuf bytes.Buffer
+	templateData := &template.Data{
+		Options: &f.GenOptions,
+		Struct:  &parsedStruct,
 	}
-
-	if f.Iter {
-		outBuf.WriteString(fmt.Sprintf("// All was generated from the [%s] struct. It returns an array of all [%s]'s associated constant values.\n", f.SourceStruct, baseName))
-
-		var sb strings.Builder
-		for _, n := range fieldNames {
-			sb.WriteByte('\n')
-			sb.WriteByte('"')
-			sb.WriteString(n)
-			sb.WriteByte('"')
-			sb.WriteByte(',')
-		}
-		fieldNamesStr := sb.String()
-		if f.Style == StyleGeneric {
-			outBuf.WriteString(fmt.Sprintf("func (%s %s[T]) All() [%d]string { return [%d]string{%s} }\n", firstChar, baseName, len(fieldNames), len(fieldNames), fieldNamesStr))
-		} else {
-			outBuf.WriteString(fmt.Sprintf("func (%s %s) All() [%d]string { return [%d]string{%s} }\n", firstChar, baseName, len(fieldNames), len(fieldNames), fieldNamesStr))
-		}
-	}
-
-	if _, err = constBuf.WriteTo(&outBuf); err != nil {
-		log.Fatalf("failed to write full contents in memory: %v", err)
-	}
-
-	return outBuf.Bytes(), imports, nil
-}
-
-type parsedField struct {
-	parseFieldResult
-	baseName string
-}
-
-func fieldIsEmbeddedStruct(f *types.Var) (*types.Struct, bool) {
-	if !f.Embedded() {
-		return nil, false
-	}
-
-	t := f.Type()
-	for {
-		switch v := t.(type) {
-		case *types.Pointer:
-			t = t.Underlying()
-		case *types.Named:
-			t = t.Underlying()
-		case *types.Struct:
-			return v, true
-		default:
-			return nil, false
-		}
-	}
-}
-
-func parseStructFields(f FlagOptions, structPackage, baseName string, s *types.Struct) ([]parsedField, error) {
-	var (
-		topLevelFields = make(map[string]struct{})
-		fields         []parsedField
-		embeddedFields []parsedField
-	)
-	for i := 0; i < s.NumFields(); i++ {
-		field := s.Field(i)
-		if !f.IncludeUnexportedFields && !field.Exported() {
-			continue
-		}
-
-		tag := s.Tag(i)
-		parseFieldResult, err := parseField(structPackage, field, tag, baseName, f)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse field with name %s: %w", field.Name(), err)
-		}
-
-		if parseFieldResult.constValue == "-" { // Handle the case that the field is ignored
-			continue
-		}
-
-		if structType, ok := fieldIsEmbeddedStruct(field); ok {
-			embFields, err := parseStructFields(f, structPackage, baseName, structType)
-			if err != nil {
-				return nil, err
-			}
-
-			embeddedFields = append(embeddedFields, embFields...)
-			continue
-		}
-
-		bName := []rune(baseName)
-		if f.Export {
-			bName[0] = unicode.ToUpper(bName[0])
-		} else {
-			bName[0] = unicode.ToLower(bName[0])
-		}
-		baseName = string(bName)
-		fields = append(fields, parsedField{
-			parseFieldResult: parseFieldResult,
-			baseName:         baseName,
-		})
-		topLevelFields[parseFieldResult.constName] = struct{}{}
-	}
-
-	for _, field := range embeddedFields {
-		_, ok := topLevelFields[field.constName]
-		if ok {
-			continue
-		}
-		fields = append(fields, field)
-	}
-
-	return fields, nil
-}
-
-type parseFieldResult struct {
-	fieldType, constName, constValue string
-	requiredImports                  []string
-}
-
-func parseField(structPackage string, field *types.Var, tag, baseName string, f FlagOptions) (parseFieldResult, error) {
-	tags, err := structtag.Parse(tag)
+	err = templateWrapper.Execute(&outBuf, templateData)
 	if err != nil {
-		return parseFieldResult{}, fmt.Errorf("failed to parse struct tags for field %s: %w", field.Name(), err)
+		return nil, nil, fmt.Errorf("failed to execute template: %w", err)
 	}
 
-	fieldType, imps := parseTypeName(structPackage, field.Type())
-	if sfgenTag, ok := sfgenTagName(f.Tag, tags); ok {
-		return parseFieldResult{
-			fieldType:       fieldType,
-			constName:       baseName + field.Name(),
-			constValue:      sfgenTag,
-			requiredImports: imps,
-		}, nil
-	}
-
-	tagNameValue := field.Name()
-	if f.Tag != "" {
-		nameFromTag, err := tags.Get(f.Tag)
-		if err == nil && len(nameFromTag.Value()) > 0 && f.TagNameRegex != "" {
-			re, err := regexp.Compile(f.TagNameRegex)
-			if err != nil {
-				return parseFieldResult{}, fmt.Errorf("failed to compile regex expression %q: %w", f.TagNameRegex, err)
-			}
-
-			if matches := re.FindStringSubmatch(nameFromTag.Value()); len(matches) >= 2 {
-				tagNameValue = matches[1]
-			}
-		}
-
-		if err == nil && len(nameFromTag.Name) > 0 && f.TagNameRegex == "" {
-			tagNameValue = nameFromTag.Name
-		}
-	}
-
-	return parseFieldResult{
-		fieldType:       fieldType,
-		constName:       baseName + field.Name(),
-		constValue:      tagNameValue,
-		requiredImports: imps,
-	}, nil
-}
-
-func sfgenTagName(targetTagName string, tags *structtag.Tags) (string, bool) {
-	sfgenTag, err := tags.Get("sfgen")
-	if err != nil {
-		return "", false
-	}
-
-	tagValue := sfgenTag.Value()
-	if tagValue == "" {
-		return "", false
-	}
-
-	tagParts := strings.SplitN(strings.TrimSpace(tagValue), ",", 2)
-	tagName := tagParts[0] // We are guaranteed at least a slice with len(1)
-	if len(tagParts) == 1 {
-		return tagName, tagName != ""
-	}
-
-	// From here on we know that tagParts length is 2
-	tagSpecificValues := strings.Split(tagParts[1], " ")
-	for _, tagSpecificVal := range tagSpecificValues {
-		tagSpecificVal = strings.TrimSpace(tagSpecificVal)
-		if tagSpecificVal == "" {
-			continue
-		}
-
-		tagValParts := strings.SplitN(tagSpecificVal, ":", 2)
-		if len(tagValParts) != 2 || tagValParts[0] != targetTagName {
-			continue
-		}
-
-		if tagValParts[1] != "" {
-			tagName = tagValParts[1]
-			break
-		}
-	}
-
-	return tagName, tagName != ""
+	return outBuf.Bytes(), templateWrapper.Imports(), nil
 }
 
 func calculateBaseName(f FlagOptions) string {
@@ -602,68 +376,4 @@ func loadStruct(source packageToLoad, structName string) (*types.Named, *types.S
 	}
 
 	return n, s, nil
-}
-
-func parseNamedType(structPackage string, u types.Type) (string, []string) {
-	name := u.String()
-	dotIndex := strings.LastIndexByte(name, '.')
-	pkgPath := name
-	if dotIndex >= 0 {
-		pkgPath = name[:dotIndex]
-	}
-
-	if pkgPath == structPackage {
-		return name[dotIndex+1:], nil
-	}
-
-	slashIndex := strings.LastIndexByte(name, '/')
-	newName := name
-	if slashIndex >= 0 {
-		newName = name[slashIndex+1:]
-	}
-
-	if dotIndex >= 0 {
-		return newName, []string{name[:dotIndex]}
-	}
-
-	return newName, nil
-}
-
-func parseTypeNameSignature(structPackage string, u *types.Signature) (string, []string) {
-	var (
-		sb      strings.Builder
-		imports []string
-	)
-
-	sb.WriteString("func (")
-	for i := 0; i < u.Params().Len(); i++ {
-		param := u.Params().At(i)
-		paramType, imps := parseTypeName(structPackage, param.Type())
-		imports = append(imports, imps...)
-		if i > 0 && i < u.Params().Len() {
-			sb.WriteByte(',')
-
-		}
-		sb.WriteString(paramType)
-	}
-	sb.WriteByte(')')
-
-	if u.Results().Len() > 1 {
-		sb.WriteByte('(')
-	}
-	for i := 0; i < u.Results().Len(); i++ {
-		param := u.Results().At(i)
-		paramType, imps := parseTypeName(structPackage, param.Type())
-		imports = append(imports, imps...)
-		if i > 0 && i < u.Results().Len() {
-			sb.WriteByte(',')
-
-		}
-		sb.WriteString(paramType)
-	}
-	if u.Results().Len() > 1 {
-		sb.WriteByte(')')
-	}
-
-	return sb.String(), imports
 }

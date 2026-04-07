@@ -1,0 +1,58 @@
+{{if .Options.Style}}
+// {{.Struct.BaseName}} is a type, generated from {{.Options.SourceStruct}}
+// Its type is used for all of its related generated constants.
+{{- if eq .Options.Style "alias"}}
+type {{.Struct.BaseName}} = string
+{{- else if eq .Options.Style "typed"}}
+type {{.Struct.BaseName}} string
+{{block "Stringer" .Struct}}
+{{- $firstChar := to_lower (slice .BaseName 0 1) -}}
+// String implements the [fmt.Stringer] interface.
+func ({{$firstChar}} {{.BaseName}}) String() string {
+  return string({{$firstChar}})
+}
+{{end}}
+{{- else if eq .Options.Style "generic"}}
+type {{.Struct.BaseName}}[T any] string
+{{template "Stringer" .Struct}}
+{{else}}
+{{fatalf "unsupported style %q" .Struct.Style}}
+{{end}}
+{{end}}
+
+{{if .Struct.Fields}}
+// Constants generated from the fields defined on the [{{.Struct.Name}}] struct.
+const (
+{{end -}}
+
+{{$struct := .Struct}}
+{{$flags := .Options}}
+{{range $struct.Fields -}}
+
+{{if eq $flags.Style "alias" -}}
+  {{.ConstName}} {{$struct.BaseName}} = "{{.ConstValue}}"
+{{else if eq $flags.Style "typed" -}}
+  {{.ConstName}} {{$struct.BaseName}} = "{{.ConstValue}}"
+{{else if eq $flags.Style "generic" -}}
+  {{.ConstName}} {{$struct.BaseName}}[{{.TypeName}}] = "{{.ConstValue}}"
+{{else -}}
+  {{.ConstName}} = "{{.ConstValue}}"
+{{end}}
+
+{{- end}}
+
+{{- if .Struct.Fields}}
+)
+{{end}}
+
+{{if and (len .Options.Style) .Options.Iter}}
+{{- $firstChar := to_lower (slice $struct.BaseName 0 1) -}}
+// All was generated from [{{$struct.Name}}]. It returns an array of [{{$struct.BaseName}}]'s constants.
+func ({{$firstChar}} {{$struct.BaseName}}) All() []string {
+  return []string{
+  {{range .Struct.Fields -}}
+    "{{.ConstValue}}",
+  {{end -}}
+  }
+}
+{{end}}
