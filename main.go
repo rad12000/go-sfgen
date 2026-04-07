@@ -1,4 +1,5 @@
 /*
+“
 go-sfgen generates constants from struct fields.
 
 Below is a list of flags that can be used with the //go:generate directive.
@@ -62,34 +63,16 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
-	"sync"
-	"text/template"
 	"unicode"
 
 	_ "embed"
 
-	"github.com/fatih/structtag"
+	"github.com/rad12000/go-sfgen/parser"
+	"github.com/rad12000/go-sfgen/template"
 )
 
 var flagOptions []FlagOptions
-
-//go:embed templates/default.gotmpl
-var defaultTemplateStr string
-
-var (
-	defaultTemplateOnce sync.Once
-	defaultTemplateRaw  *template.Template
-	defaultTemplateErr  error
-)
-
-func defaultTemplate(t *template.Template) (*template.Template, error) {
-	defaultTemplateOnce.Do(func() {
-		defaultTemplateRaw, defaultTemplateErr = t.Parse(defaultTemplateStr)
-	})
-	return defaultTemplateRaw, defaultTemplateErr
-}
 
 func main() {
 	flagOptions = parseOptions()
@@ -291,11 +274,6 @@ func parseOptions() []FlagOptions {
 	return []FlagOptions{topLevelOpts}
 }
 
-type TemplateData struct {
-	Flags  *FlagOptions
-	Struct *ParsedStruct
-}
-
 func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 	if f.Iter && f.Style == StyleAlias {
 		log.Fatalf("Invalid style %s: only %s and %s styles may be used with the --iter flag", f.Style, StyleGeneric, StyleTyped)
@@ -308,232 +286,31 @@ func parsePackage(f FlagOptions) (code []byte, imports []string, err error) {
 
 	baseName := calculateBaseName(f)
 	structPackage := structType.String()[:strings.LastIndexByte(structType.String(), '.')]
-	parsedStruct, err := parseStructFields(f, structPackage, baseName, s)
+	parsedStruct, err := parser.ParseStructFields(f.GenOptions, structPackage, baseName, s)
 	if err != nil {
 		return nil, nil, err
 	}
 	parsedStruct.Name = structType.Obj().Name()
 	parsedStruct.BaseName = baseName
 
-	var templateWrapper *templateWrapper
+	var templateWrapper *template.Template
 	if f.Template != "" {
-		templateWrapper, err = newTemplateWrapper(
-			func(t *template.Template) (*template.Template, error) {
-				contents, err := os.ReadFile(f.Template)
-				if err != nil {
-					return nil, fmt.Errorf("failed to read template %q: %w", f.Template, err)
-				}
-
-				return t.Parse(string(contents))
-			},
-		)
-		if err != nil {
-			return nil, nil, err
-		}
+		templateWrapper = template.New(template.FromFile(f.Template))
 	} else {
-		templateWrapper, err = newTemplateWrapper(defaultTemplate)
-		if err != nil {
-			return nil, nil, err
-		}
+		templateWrapper = template.New(template.Default())
 	}
 
 	var outBuf bytes.Buffer
-	templateData := TemplateData{
-		Flags:  &f,
-		Struct: &parsedStruct,
+	templateData := &template.Data{
+		Options: &f.GenOptions,
+		Struct:  &parsedStruct,
 	}
-	err = templateWrapper.Template.Execute(&outBuf, templateData)
+	err = templateWrapper.Execute(&outBuf, templateData)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to execute template: %w", err)
 	}
 
 	return outBuf.Bytes(), templateWrapper.Imports(), nil
-}
-
-func fieldIsEmbeddedStruct(f *types.Var) (*types.Struct, bool) {
-	if !f.Embedded() {
-		return nil, false
-	}
-
-	t := f.Type()
-	for {
-		switch v := t.(type) {
-		case *types.Pointer:
-			t = t.Underlying()
-		case *types.Named:
-			t = t.Underlying()
-		case *types.Struct:
-			return v, true
-		default:
-			return nil, false
-		}
-	}
-}
-
-type ParsedStruct struct {
-	Name     string
-	BaseName string
-	Fields   []ParsedField
-}
-
-func parseStructFields(f FlagOptions, structPackage, baseName string, s *types.Struct) (ParsedStruct, error) {
-	bName := []rune(baseName)
-	if f.Export {
-		bName[0] = unicode.ToUpper(bName[0])
-	} else {
-		bName[0] = unicode.ToLower(bName[0])
-	}
-	baseName = string(bName)
-
-	var (
-		topLevelFields = make(map[string]struct{})
-		fields         []ParsedField
-		embeddedFields []ParsedField
-	)
-	for i := 0; i < s.NumFields(); i++ {
-		field := s.Field(i)
-		if !f.IncludeUnexportedFields && !field.Exported() {
-			continue
-		}
-
-		tag := s.Tag(i)
-		parseFieldResult, err := parseTopLevelField(structPackage, field, tag, baseName, f)
-		if err != nil {
-			return ParsedStruct{}, fmt.Errorf("failed to parse field with name %s: %w", field.Name(), err)
-		}
-
-		if parseFieldResult.ConstValue == "-" { // Handle the case that the field is ignored
-			continue
-		}
-
-		if structType, ok := fieldIsEmbeddedStruct(field); ok {
-			embFields, err := parseStructFields(f, structPackage, baseName, structType)
-			if err != nil {
-				return ParsedStruct{}, err
-			}
-
-			embeddedFields = append(embeddedFields, embFields.Fields...)
-			continue
-		}
-
-		fields = append(fields, parseFieldResult)
-		topLevelFields[parseFieldResult.ConstName] = struct{}{}
-	}
-
-	for _, field := range embeddedFields {
-		_, ok := topLevelFields[field.ConstName]
-		if ok {
-			continue
-		}
-		fields = append(fields, field)
-	}
-
-	return ParsedStruct{
-		BaseName: baseName,
-		Fields:   fields,
-	}, nil
-}
-
-type ParsedField struct {
-	StructField
-
-	// ConstName is the name of the constant to be generated for this field.
-	// For example, if the source struct is "Config", the field is "Timeout", and the prefix is "Field", this will be "ConfigFieldTimeout" or "FieldTimeout" depending on whether the --include-struct-name flag is used.
-	ConstName string
-
-	// ConstValue is the value of the constant to be generated for this field.
-	// By default, this is the field's name, but it can be overridden by struct tags.
-	ConstValue string
-}
-
-func parseTopLevelField(structPackage string, field *types.Var, tag, baseName string, f FlagOptions) (ParsedField, error) {
-	tags, err := structtag.Parse(tag)
-	if err != nil {
-		return ParsedField{}, fmt.Errorf("failed to parse struct tags for field %s: %w", field.Name(), err)
-	}
-
-	structField := parseStructField(structPackage, field)
-	if sfgenTag, ok := sfgenTagName(f.Tag, tags); ok {
-		return ParsedField{
-			ConstName:   baseName + field.Name(),
-			ConstValue:  sfgenTag,
-			StructField: structField,
-		}, nil
-	}
-
-	tagNameValue := field.Name()
-	if f.Tag != "" {
-		nameFromTag, err := tags.Get(f.Tag)
-		if err == nil && len(nameFromTag.Value()) > 0 && f.TagNameRegex != "" {
-			re, err := regexp.Compile(f.TagNameRegex)
-			if err != nil {
-				return ParsedField{}, fmt.Errorf("failed to compile regex expression %q: %w", f.TagNameRegex, err)
-			}
-
-			if matches := re.FindStringSubmatch(nameFromTag.Value()); len(matches) >= 2 {
-				tagNameValue = matches[1]
-			}
-		}
-
-		if err == nil && len(nameFromTag.Name) > 0 && f.TagNameRegex == "" {
-			tagNameValue = nameFromTag.Name
-		}
-	}
-
-	return ParsedField{
-		ConstName:   baseName + field.Name(),
-		ConstValue:  tagNameValue,
-		StructField: structField,
-	}, nil
-}
-
-func parseStructField(structPackage string, field *types.Var) StructField {
-	fieldType := parseTypeName(structPackage, field.Type())
-	return StructField{
-		Embedded:  field.Embedded(),
-		Exported:  field.Exported(),
-		FieldName: field.Name(),
-		FieldType: fieldType,
-	}
-}
-
-func sfgenTagName(targetTagName string, tags *structtag.Tags) (string, bool) {
-	sfgenTag, err := tags.Get("sfgen")
-	if err != nil {
-		return "", false
-	}
-
-	tagValue := sfgenTag.Value()
-	if tagValue == "" {
-		return "", false
-	}
-
-	tagParts := strings.SplitN(strings.TrimSpace(tagValue), ",", 2)
-	tagName := tagParts[0] // We are guaranteed at least a slice with len(1)
-	if len(tagParts) == 1 {
-		return tagName, tagName != ""
-	}
-
-	// From here on we know that tagParts length is 2
-	tagSpecificValues := strings.Split(tagParts[1], " ")
-	for _, tagSpecificVal := range tagSpecificValues {
-		tagSpecificVal = strings.TrimSpace(tagSpecificVal)
-		if tagSpecificVal == "" {
-			continue
-		}
-
-		tagValParts := strings.SplitN(tagSpecificVal, ":", 2)
-		if len(tagValParts) != 2 || tagValParts[0] != targetTagName {
-			continue
-		}
-
-		if tagValParts[1] != "" {
-			tagName = tagValParts[1]
-			break
-		}
-	}
-
-	return tagName, tagName != ""
 }
 
 func calculateBaseName(f FlagOptions) string {
@@ -599,105 +376,4 @@ func loadStruct(source packageToLoad, structName string) (*types.Named, *types.S
 	}
 
 	return n, s, nil
-}
-
-func parseNamedType(structPackage string, u types.Type) (string, []string) {
-	name := u.String()
-	dotIndex := strings.LastIndexByte(name, '.')
-	pkgPath := name
-	if dotIndex >= 0 {
-		pkgPath = name[:dotIndex]
-	}
-
-	if pkgPath == structPackage {
-		return name[dotIndex+1:], nil
-	}
-
-	slashIndex := strings.LastIndexByte(name, '/')
-	newName := name
-	if slashIndex >= 0 {
-		newName = name[slashIndex+1:]
-	}
-
-	if dotIndex >= 0 {
-		return newName, []string{name[:dotIndex]}
-	}
-
-	return newName, nil
-}
-
-func parseTypeNameSignature(structPackage string, u *types.Signature) *FieldType {
-	result := FuncSignature{
-		Parameters:       make([]FuncParam, 0, u.Params().Len()),
-		ReturnParameters: make([]FuncParam, 0, u.Results().Len()),
-	}
-
-	for i := 0; i < u.Params().Len(); i++ {
-		param := u.Params().At(i)
-		parsedType := parseTypeName(structPackage, param.Type())
-		result.Parameters = append(result.Parameters, FuncParam{
-			Name: param.Name(),
-			Type: parsedType,
-		})
-	}
-
-	for i := 0; i < u.Results().Len(); i++ {
-		param := u.Results().At(i)
-		parsedType := parseTypeName(structPackage, param.Type())
-		result.ReturnParameters = append(result.Parameters, FuncParam{
-			Name: param.Name(),
-			Type: parsedType,
-		})
-	}
-
-	typeNameAndImports := sync.OnceValues(func() (string, []string) {
-		var (
-			sb      strings.Builder
-			imports []string
-		)
-		sb.WriteString("func (")
-
-		for i, param := range result.Parameters {
-			imports = append(imports, param.Type.Imports()...)
-			if i > 0 && i < len(result.Parameters) {
-				sb.WriteByte(',')
-			}
-			sb.WriteString(param.Name)
-			sb.WriteByte(' ')
-			sb.WriteString(param.Type.TypeName())
-		}
-
-		sb.WriteByte(')')
-
-		if len(result.ReturnParameters) > 1 {
-			sb.WriteByte('(')
-		}
-
-		for i, param := range result.ReturnParameters {
-			imports = append(imports, param.Type.Imports()...)
-			if i > 0 && i < len(result.ReturnParameters) {
-				sb.WriteByte(',')
-			}
-			sb.WriteString(param.Type.TypeName())
-		}
-
-		if len(result.ReturnParameters) > 1 {
-			sb.WriteByte(')')
-		}
-
-		return sb.String(), imports
-	})
-
-	return &FieldType{
-		typeName: func() string {
-			typeName, _ := typeNameAndImports()
-			return typeName
-		},
-		imports: func() []string {
-			_, imports := typeNameAndImports()
-			return imports
-		},
-		IsFuncSignature: true,
-		FuncSignature:   result,
-	}
 }

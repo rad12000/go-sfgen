@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/google/shlex"
+	"github.com/rad12000/go-sfgen/template"
 )
 
 const (
@@ -17,24 +18,8 @@ const (
 )
 
 type FlagOptions struct {
-	DryRun                  bool
-	OutputFile              string
-	OutputDir               string
-	OutputPackage           string
-	SourceStruct            string
-	SourceStructDir         string
-	PackageName             string
-	IncludeTests            bool
-	Style                   string
-	Template                string
-	Tag                     string
-	TagNameRegex            string
-	Prefix                  *string
-	Export                  bool
-	UseStructName           bool
-	IncludeUnexportedFields bool
-	Iter                    bool
-	packagesToLoad          packageToLoad
+	template.GenOptions
+	packagesToLoad packageToLoad
 }
 
 func (f *FlagOptions) ParseString(args string) error {

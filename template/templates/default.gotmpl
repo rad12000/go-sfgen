@@ -1,9 +1,9 @@
-{{if .Flags.Style}}
-// {{.Struct.BaseName}} is a type, generated from {{.Flags.SourceStruct}}
+{{if .Options.Style}}
+// {{.Struct.BaseName}} is a type, generated from {{.Options.SourceStruct}}
 // Its type is used for all of its related generated constants.
-{{- if eq .Flags.Style "alias"}}
+{{- if eq .Options.Style "alias"}}
 type {{.Struct.BaseName}} = string
-{{- else if eq .Flags.Style "typed"}}
+{{- else if eq .Options.Style "typed"}}
 type {{.Struct.BaseName}} string
 {{block "Stringer" .Struct}}
 {{- $firstChar := to_lower (slice .BaseName 0 1) -}}
@@ -12,7 +12,7 @@ func ({{$firstChar}} {{.BaseName}}) String() string {
   return string({{$firstChar}})
 }
 {{end}}
-{{- else if eq .Flags.Style "generic"}}
+{{- else if eq .Options.Style "generic"}}
 type {{.Struct.BaseName}}[T any] string
 {{template "Stringer" .Struct}}
 {{else}}
@@ -26,7 +26,7 @@ const (
 {{end -}}
 
 {{$struct := .Struct}}
-{{$flags := .Flags}}
+{{$flags := .Options}}
 {{range $struct.Fields -}}
 
 {{if eq $flags.Style "alias" -}}
@@ -45,7 +45,7 @@ const (
 )
 {{end}}
 
-{{if and (len .Flags.Style) .Flags.Iter}}
+{{if and (len .Options.Style) .Options.Iter}}
 {{- $firstChar := to_lower (slice $struct.BaseName 0 1) -}}
 // All was generated from [{{$struct.Name}}]. It returns an array of [{{$struct.BaseName}}]'s constants.
 func ({{$firstChar}} {{$struct.BaseName}}) All() []string {
